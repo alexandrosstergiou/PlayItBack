@@ -4,7 +4,7 @@ import pickle
 import torch
 import torch.utils.data
 
-import hearitback.utils.logging as logging
+import playitback.utils.logging as logging
 
 from .build import DATASET_REGISTRY
 

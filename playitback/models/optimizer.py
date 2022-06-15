@@ -5,7 +5,7 @@
 
 import json
 
-import hearitback.utils.lr_policy as lr_policy
+import playitback.utils.lr_policy as lr_policy
 import torch
 
 

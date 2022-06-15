@@ -12,15 +12,15 @@ from fvcore.common.file_io import PathManager
 import sys
 import os
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
-import hearitback.utils.checkpoint as cu
-import hearitback.utils.distributed as du
-import hearitback.utils.logging as logging
-import hearitback.utils.misc as misc
-import hearitback.visualization.tensorboard_vis as tb
-from hearitback.datasets import loader
-from hearitback.models import build_model
-from hearitback.utils.meters import TestMeter, EPICTestMeter
-from hearitback.utils.vggsound_metrics import get_stats
+import playitback.utils.checkpoint as cu
+import playitback.utils.distributed as du
+import playitback.utils.logging as logging
+import playitback.utils.misc as misc
+import playitback.visualization.tensorboard_vis as tb
+from playitback.datasets import loader
+from playitback.models import build_model
+from playitback.utils.meters import TestMeter, EPICTestMeter
+from playitback.utils.vggsound_metrics import get_stats
 
 logger = logging.get_logger(__name__)
 
@@ -39,7 +39,7 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
         test_meter (TestMeter): testing meters to log and ensemble the testing
             results.
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         writer (TensorboardWriter object, optional): TensorboardWriter object
             to writer Tensorboard log.
     """
@@ -153,7 +153,7 @@ def test(cfg):
     Perform multi-view testing on the pretrained audio model.
     Args:
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
     """
     # Set up environment.
     du.init_distributed_training(cfg)

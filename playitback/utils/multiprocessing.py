@@ -38,7 +38,7 @@ def run(
             here:
             https://pytorch.org/docs/stable/distributed.html
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         output_queue (queue): can optionally be used to return values from the
             master process.
     """

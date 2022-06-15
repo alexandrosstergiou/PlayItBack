@@ -120,45 +120,6 @@ _C.TEST.NUM_ENSEMBLE_VIEWS = 10
 
 # Path to saving prediction results file.
 _C.TEST.SAVE_RESULTS_PATH = ""
-# -----------------------------------------------------------------------------
-# ResNet options
-# -----------------------------------------------------------------------------
-_C.RESNET = CfgNode()
-
-# Transformation function.
-_C.RESNET.TRANS_FUNC = "bottleneck_transform"
-
-# Number of groups. 1 for ResNet, and larger than 1 for ResNeXt).
-_C.RESNET.NUM_GROUPS = 1
-
-# Width of each group (64 -> ResNet; 4 -> ResNeXt).
-_C.RESNET.WIDTH_PER_GROUP = 64
-
-# Apply relu in a inplace manner.
-_C.RESNET.INPLACE_RELU = True
-
-# Apply stride to 1x1 conv.
-_C.RESNET.STRIDE_1X1 = False
-
-#  If true, initialize the gamma of the final BN of each block to zero.
-_C.RESNET.ZERO_INIT_FINAL_BN = False
-
-# Number of weight layers.
-_C.RESNET.DEPTH = 50
-
-# If the current block has more than NUM_BLOCK_TEMP_KERNEL blocks, use temporal
-# kernel of 1 for the rest of the blocks.
-_C.RESNET.NUM_BLOCK_TEMP_KERNEL = [[3], [4], [6], [3]]
-
-# Size of stride on different res stages.
-_C.RESNET.FREQUENCY_STRIDES = [[1], [2], [2], [2]]
-
-# Size of dilation on different res stages.
-_C.RESNET.FREQUENCY_DILATIONS = [[1], [1], [1], [1]]
-
-_C.RESNET.BLOCK = "Bottleneck"
-
-_C.RESNET.LAYERS = [3, 4, 6, 3]
 
 
 # -----------------------------------------------------------------------------
@@ -190,6 +151,9 @@ _C.MODEL.FREEZE_ENCODER = True
 # Only use the encoder part of the network.
 _C.MODEL.IGNORE_DECODER = False
 
+# PlayItBack loops.
+_C.MODEL.PLAYBACK = 3
+
 
 # -----------------------------------------------------------------------------
 # DECODER/TEMPR options
@@ -199,9 +163,6 @@ _C.DECODER = CfgNode()
 
 # Number of freq bands, with original value (2 * K + 1)
 _C.DECODER.NUM_FREQ_BANDS = 6
-
-# Number of towers (for the network depth).
-_C.DECODER.DEPTH = 3
 
 # Maximum frequency, hyperparameter depending on how fine the data is.
 _C.DECODER.MAX_FREQ = 10
@@ -213,7 +174,7 @@ _C.DECODER.INPUT_CHANNELS = 1
 _C.DECODER.NUM_LATENTS = 256
 
 # Latent dimension.
-_C.DECODER.LATENTt_DIM = 512
+_C.DECODER.LATENT_DIM = 512
 
 # Number of heads for cross attention. Perceiver paper uses 1.
 _C.DECODER.CROSS_HEADS = 1
@@ -225,7 +186,7 @@ _C.DECODER.LATENT_HEADS = 8
 _C.DECODER.CROSS_DIM_HEAD = 64
 
 # Number of dimensions per latent self attention head.
-_C.DECODER.latent_dim_head = 64
+_C.DECODER.LATENT_DIM_HEAD = 64
 
 # Attention dropout
 _C.DECODER.ATTN_DROPOUT = 0.
@@ -246,7 +207,7 @@ _C.DECODER.SELF_PER_CROSS_ATTN = 1
 _C.DECODER.FINAL_CLASSIFIER_HEAD = True
 
 # Aggregation method for the tower predictors could be set to `mean` or `adaptive`
-_C.DECODER.FUSION = 'mean'
+_C.DECODER.FUSION = 'adaptive'
 
 # -----------------------------------------------------------------------------
 # ENCODER/MViT options
@@ -601,11 +562,6 @@ def _assert_and_infer_cfg(cfg):
 
     # TEST assertions.
     assert cfg.TEST.BATCH_SIZE % cfg.NUM_GPUS == 0
-
-    # RESNET assertions.
-    assert cfg.RESNET.NUM_GROUPS > 0
-    assert cfg.RESNET.WIDTH_PER_GROUP > 0
-    assert cfg.RESNET.WIDTH_PER_GROUP % cfg.RESNET.NUM_GROUPS == 0
 
     # Execute LR scaling by num_shards.
     if cfg.SOLVER.BASE_LR_SCALE_NUM_SHARDS:

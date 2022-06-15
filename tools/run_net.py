@@ -5,8 +5,8 @@
 
 import sys, os
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
-from hearitback.utils.misc import launch_job
-from hearitback.utils.parser import load_config, parse_args
+from playitback.utils.misc import launch_job
+from playitback.utils.parser import load_config, parse_args
 
 from test_net import test
 from train_net import train

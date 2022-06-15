@@ -11,8 +11,8 @@ from collections import OrderedDict
 import torch
 from fvcore.common.file_io import PathManager
 
-import hearitback.utils.distributed as du
-import hearitback.utils.logging as logging
+import playitback.utils.distributed as du
+import playitback.utils.logging as logging
 
 logger = logging.get_logger(__name__)
 

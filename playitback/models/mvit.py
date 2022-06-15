@@ -13,7 +13,6 @@ from torch.nn.init import trunc_normal_
 
 
 from fvcore.common.registry import Registry
-from einops import rearrange, repeat, reduce
 
 MODEL_REGISTRY = Registry("MODEL")
 MODEL_REGISTRY.__doc__ = ""
@@ -834,16 +833,3 @@ if __name__ == "__main__":
 
     out = model(tmp)
     print('--- TEST 2 (train -- fp32) passed ---','input:',tmp.shape,'exited the network with new shape:',out.shape,'\n')
-
-    emb=out
-    emb = rearrange(emb, 'b (w h) d -> b d h w',h=13)
-    emb = reduce(emb, 'b d h w -> b d h', 'mean')
-    score_saliency_map = torch.zeros((32, 1, 400)).cuda()
-
-    min = torch.min(emb, dim=-1, keepdim=True)[0]
-    max = torch.max(emb, dim=-1, keepdim=True)[0]
-    temporal_saliency = (emb - min) / (max - min)
-    temporal_saliency = torch.sum(temporal_saliency, dim=1, keepdim=True)
-    temporal_saliency = torch.nn.functional.interpolate(temporal_saliency, size=(400), mode='linear', align_corners=False)
-    id = torch.argmax(temporal_saliency.squeeze(1), dim=-1)
-    print(temporal_saliency.shape, id)

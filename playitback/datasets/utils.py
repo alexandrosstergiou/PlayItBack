@@ -54,7 +54,7 @@ def create_sampler(dataset, shuffle, cfg):
         shuffle (bool): set to ``True`` to have the data reshuffled
             at every epoch.
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
     Returns:
         sampler (Sampler): the created sampler.
     """

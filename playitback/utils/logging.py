@@ -13,7 +13,7 @@ import sys
 import simplejson
 from fvcore.common.file_io import PathManager
 
-import hearitback.utils.distributed as du
+import playitback.utils.distributed as du
 
 
 def _suppress_print():

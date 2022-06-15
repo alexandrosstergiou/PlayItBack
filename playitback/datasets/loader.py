@@ -19,7 +19,7 @@ def construct_loader(cfg, split):
     Constructs the data loader for the given dataset.
     Args:
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         split (str): the split of the data loader. Options include `train`,
             `val`, and `test`.
     """

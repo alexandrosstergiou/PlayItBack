@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
-from hearitback.utils.env import setup_environment
+from playitback.utils.env import setup_environment
 
 setup_environment()

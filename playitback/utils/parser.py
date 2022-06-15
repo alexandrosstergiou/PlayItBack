@@ -6,8 +6,8 @@
 import argparse
 import sys
 
-import hearitback.utils.checkpoint as cu
-from hearitback.config.defaults import get_cfg
+import playitback.utils.checkpoint as cu
+from playitback.config.defaults import get_cfg
 
 
 def parse_args():
@@ -55,7 +55,7 @@ def parse_args():
     )
     parser.add_argument(
         "opts",
-        help="See hearitback/config/defaults.py for all options",
+        help="See playitback/config/defaults.py for all options",
         default=None,
         nargs=argparse.REMAINDER,
     )

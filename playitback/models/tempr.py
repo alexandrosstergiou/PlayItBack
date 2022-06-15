@@ -1,4 +1,4 @@
-DECODERfrom math import pi, log
+from math import pi, log
 from functools import wraps
 import numpy as np
 import torch
@@ -13,8 +13,8 @@ from fvcore.common.registry import Registry
 MODEL_REGISTRY = Registry("MODEL")
 MODEL_REGISTRY.__doc__ = ""
 
-import adapool_cuda
-from adaPool import IDWPool1d, EMPool1d, EDSCWPool1d, AdaPool1d
+#import adapool_cuda
+#from adaPool import IDWPool1d, EMPool1d, EDSCWPool1d, AdaPool1d
 
 
 # helpers
@@ -227,20 +227,26 @@ class TemPr(nn.Module):
 
         make_contiguous = Contiguous()
 
-        if cfg.DECODER.FUSION == 'adaptive':
+        if cfg.DECODER.FUSION == 'mean':
             self.fusion = torch.nn.Sequential(
                 Rearrange('b s c -> b c s'),
                 make_contiguous,
-                AdaPool1d(kernel_size=(cfg.DECODER.DEPTH),beta=(1)),
+                nn.AvgPool1d(kernel_size=(cfg.DECODER.DEPTH),beta=(1)),
                 Rearrange('b c 1 -> b c'))
-        elif cfg.DECODER.FUSION == 'mean':
+        elif cfg.DECODER.FUSION == 'adaptive':
             self.fusion = torch.nn.Sequential(
                 Rearrange('b s c -> b c s'),
                 make_contiguous,
-                nn.AvgPool1d(kernel_size=(cfg.DECODER.DEPTH)),
+                nn.Conv1d(in_channels=cfg.DECODER.LATENT_DIM,
+                          out_channels=cfg.DECODER.LATENT_DIM,
+                          kernel_size=(cfg.DECODER.DEPTH),
+                          bias=False),
+                nn.ReLU(inplace=True),
+                nn.Dropout(0.1)
                 Rearrange('b c 1 -> b c'))
         else:
             self.fusion = nn.Identity()
+
 
         self.fc = nn.Linear(cfg.DECODER.LATENT_DIM, self.num_classes) if cfg.DECODER.FINAL_CLASSIFIER_HEAD else nn.Identity()
 
@@ -286,7 +292,6 @@ class TemPr(nn.Module):
 
         # to logits
         x = self.reduce(torch.stack(x_list,dim=0))
-        x = reduce(x, 'b n d -> b d', 'mean')
         x = self.fusion(x)
 
         # class predictions

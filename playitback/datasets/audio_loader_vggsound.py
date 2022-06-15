@@ -36,6 +36,8 @@ def get_start_end_idx(audio_size, clip_size, clip_idx, num_clips):
 
 
 def pack_audio(cfg, audio_record, temporal_sample_index):
+    assert not (cfg.MODEL.PLAYBACK > 0 and cfg.MODEL.IGNORE_DECODER), 'Expected the decoder to be used for playback looping.'
+    assert not (cfg.MODEL.PLAYBACK == 0 and not cfg.MODEL.IGNORE_DECODER), 'Cannot use decoder if no playback looping is used.'
     path_audio = os.path.join(cfg.VGGSOUND.AUDIO_DATA_DIR, audio_record['video'][:-4] + '.wav')
     import librosa
     samples, sr = librosa.core.load(path_audio, sr=None, mono=False)
@@ -48,7 +50,22 @@ def pack_audio(cfg, audio_record, temporal_sample_index):
         cfg.TEST.NUM_ENSEMBLE_VIEWS
     )
     spectrogram = _extract_sound_feature(cfg, samples, int(start_idx), int(end_idx))
-    return spectrogram
+
+    # Looping
+    if cfg.MODEL.PLAYBACK > 0:
+        spectrograms = [spectrogram]
+        max_iter = cfg.MODEL.PLAYBACK+2
+        num_frames = cfg.AUDIO_DATA.NUM_FRAMES
+        for i in range(2, max_iter):
+            # recursively get spectrograms
+            cfg.MODEL.PLAYBACK = 0
+            cfg.MODEL.IGNORE_DECODER = True
+            cfg.AUDIO_DATA.NUM_FRAMES = num_frames/i
+            cfg.AUDIO_DATA.HOP_LENGTH = 0.0249951175 * cfg.AUDIO_DATA.NUM_FRAMES
+            spec = pack_audio(cfg, audio_record, i)
+            spectrograms.append(spec[0])
+        return spectrograms
+    return [spectrogram]
 
 
 def _log_specgram(cfg, audio, window_size=10,

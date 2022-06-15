@@ -6,9 +6,9 @@ import os
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-import hearitback.utils.logging as logging
-import hearitback.visualization.utils as vis_utils
-from hearitback.utils.misc import get_class_names
+import playitback.utils.logging as logging
+import playitback.visualization.utils as vis_utils
+from playitback.utils.misc import get_class_names
 
 logger = logging.get_logger(__name__)
 log.getLogger("matplotlib").setLevel(log.ERROR)
@@ -23,7 +23,7 @@ class TensorboardWriter(object):
         """
         Args:
             cfg (CfgNode): configs. Details can be found in
-                hearitback/config/defaults.py
+                playitback/config/defaults.py
         """
         # class_names: list of class names.
         # cm_subset_classes: a list of class ids -- a user-specified subset.

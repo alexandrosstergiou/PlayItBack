@@ -3,7 +3,7 @@
 
 """Set up Environment."""
 
-import hearitback.utils.logging as logging
+import playitback.utils.logging as logging
 
 _ENV_SETUP_DONE = False
 

@@ -15,10 +15,10 @@ from fvcore.nn.flop_count import flop_count
 from matplotlib import pyplot as plt
 from torch import nn
 
-import hearitback.utils.logging as logging
-import hearitback.utils.multiprocessing as mpu
-from hearitback.datasets.utils import pack_pathway_output
-from hearitback.models.batchnorm_helper import SubBatchNorm2d
+import playitback.utils.logging as logging
+import playitback.utils.multiprocessing as mpu
+from playitback.datasets.utils import pack_pathway_output
+from playitback.models.batchnorm_helper import SubBatchNorm2d
 
 logger = logging.get_logger(__name__)
 
@@ -81,7 +81,7 @@ def _get_model_analysis_input(cfg):
         used for analyzing the model (counting flops and activations etc.).
     Args:
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
 
     Returns:
         inputs: the input for model analysis.
@@ -108,7 +108,7 @@ def get_model_stats(model, cfg, mode):
     Args:
         model (model): model to perform analysis.
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         mode (str): Options include `flop` or `activation`. Compute either flop
             (gflops) or activation count (mega).
 
@@ -144,7 +144,7 @@ def log_model_info(model, cfg):
     Args:
         model (model): model to log the info.
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
     """
     logger.info("Model:\n{}".format(model))
     logger.info("Params: {:,}".format(params_count(model)))
@@ -168,7 +168,7 @@ def is_eval_epoch(cfg, cur_epoch):
     Determine if the model should be evaluated at the current epoch.
     Args:
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         cur_epoch (int): current epoch.
     """
     if cur_epoch + 1 == cfg.SOLVER.MAX_EPOCH:
@@ -230,7 +230,7 @@ def launch_job(cfg, init_method, func, daemon=False):
     Run 'func' on one or more GPUs, specified in cfg
     Args:
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         init_method (str): initialization method to launch the job with multiple
             devices.
         func (function): job to run on GPU(s)

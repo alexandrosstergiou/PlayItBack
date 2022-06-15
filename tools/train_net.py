@@ -13,18 +13,18 @@ from fvcore.nn.precise_bn import get_bn_modules, update_bn_stats
 import sys
 import os
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
-import hearitback.models.losses as losses
-import hearitback.models.optimizer as optim
-import hearitback.utils.checkpoint as cu
-import hearitback.utils.distributed as du
-import hearitback.utils.logging as logging
-import hearitback.utils.metrics as metrics
-import hearitback.utils.misc as misc
-import hearitback.visualization.tensorboard_vis as tb
-from hearitback.datasets import loader
-from hearitback.datasets.mixup import MixUp
-from hearitback.models import build_model
-from hearitback.utils.meters import TrainMeter, ValMeter, EPICTrainMeter, EPICValMeter
+import playitback.models.losses as losses
+import playitback.models.optimizer as optim
+import playitback.utils.checkpoint as cu
+import playitback.utils.distributed as du
+import playitback.utils.logging as logging
+import playitback.utils.metrics as metrics
+import playitback.utils.misc as misc
+import playitback.visualization.tensorboard_vis as tb
+from playitback.datasets import loader
+from playitback.datasets.mixup import MixUp
+from playitback.models import build_model
+from playitback.utils.meters import TrainMeter, ValMeter, EPICTrainMeter, EPICValMeter
 
 logger = logging.get_logger(__name__)
 
@@ -42,7 +42,7 @@ def train_epoch(
         train_meter (TrainMeter): training meters to log the training performance.
         cur_epoch (int): current epoch of training.
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         writer (TensorboardWriter, optional): TensorboardWriter object
             to writer Tensorboard log.
     """
@@ -317,7 +317,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         val_meter (ValMeter): meter instance to record and calculate the metrics.
         cur_epoch (int): number of the current epoch of training.
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
         writer (TensorboardWriter, optional): TensorboardWriter object
             to writer Tensorboard log.
     """
@@ -594,7 +594,7 @@ def train(cfg):
     Train an audio model for many epochs on train set and evaluate it on val set.
     Args:
         cfg (CfgNode): configs. Details can be found in
-            hearitback/config/defaults.py
+            playitback/config/defaults.py
     """
     # Set up environment.
     du.init_distributed_training(cfg)
@@ -664,9 +664,9 @@ def train(cfg):
     ):
         wandb_log = True
         if cfg.TRAIN.AUTO_RESUME and cfg.WANDB.RUN_ID != "":
-            wandb.init(project='hearitback', config=cfg, sync_tensorboard=True, resume=cfg.WANDB.RUN_ID)
+            wandb.init(project='playitback', config=cfg, sync_tensorboard=True, resume=cfg.WANDB.RUN_ID)
         else:
-            wandb.init(project='hearitback', config=cfg, sync_tensorboard=True)
+            wandb.init(project='playitback', config=cfg, sync_tensorboard=True)
         wandb.watch(model)
 
     else:
