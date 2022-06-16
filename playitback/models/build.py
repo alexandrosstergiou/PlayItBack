@@ -2,13 +2,30 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 """Model construction functions."""
-
+import sys
 import torch
 
 from .tempr import TemPr
 from .mvit import MViT
 
-from einops import rearrange
+from einops import rearrange, reduce
+
+
+def approx_divisor(divisor,target):
+    prev_div = 1
+    for x in range(1,target+1):
+        # store integer divisors
+        if target%x == 0:
+            curr_div = x
+            # If later than the current divisor check previous divisor
+            if curr_div > divisor:
+                # divisor is closer to curr_div
+                if curr_div-divisor < divisor-prev_div:
+                    return curr_div
+                # else return the previous divisor
+                else:
+                    return prev_div
+            prev_div = x
 
 
 class PlayItBack(torch.nn.Module):
@@ -21,7 +38,7 @@ class PlayItBack(torch.nn.Module):
         if not cfg.MODEL.IGNORE_DECODER:
             self.decoder = TemPr(cfg=cfg)
 
-    def scaled_region_estimator(id,length=400,ratio=2):
+    def scaled_region_estimator(self,id,length=400,ratio=2):
         # Calculate frames after the salient region in the scaled volume.
         right_max_margin = (length-id)*ratio
         # Calculate frames before the salient region in the scaled volume.
@@ -50,31 +67,67 @@ class PlayItBack(torch.nn.Module):
         temporal_saliency = torch.sum(temporal_saliency, dim=1, keepdim=True)
         temporal_saliency = torch.nn.functional.interpolate(temporal_saliency, size=(400), mode='linear', align_corners=False)
         id = torch.argmax(temporal_saliency, dim=-1)
+        if torch.is_tensor(id):
+            id = id[0]
         return(temporal_saliency, id.item())
+
+
+    def rearrange_batched_data(self,x):
+        # assume x size: [ b x (playbacks x c=1) x t x f]
+        playbacks = x.shape[1]
+        base_t = x.shape[-2]/playbacks
+        x = x.permute(1, 0, 2, 3)
+        x_s = []
+        for i,x_i in enumerate(x):
+            x_s.append(x_i[:,-int(base_t*(i+1)):,:].unsqueeze(-3))
+        return x_s
+
+    def rearrange_data(self,x):
+        # assume x size: [(playbacks x c=1) x t x f]
+        playbacks = x.shape[0]
+        base_t = x.shape[-2]/playbacks
+        x_s = []
+        for i,x_i in enumerate(x):
+            x_s.append(x_i[-int(base_t*(i+1)):,:].unsqueeze(0))
+        return x_s
+
 
     def forward(self, x):
 
+        # Check if the data has been padded with zeros based on DATA_LOADER.TRAIN_CROP_SIZE
+        # if they have (and are being fed from a DataLoader), their channel dimension will correspond
+        # to the number of playbacks. Thus, they can be rearranged by:
+        dims = len(list(x.shape))
+        if x.shape[-3] > 1:
+            if dims == 4:
+                x = self.rearrange_batched_data(x)
+            elif dims == 3:
+                x = self.rearrange_data(x)
+
+
         en_feats = []
         id = 0
+        t_dim = x[0].shape[-2]
 
-        for x_i,i in range(x.shape(0)):
+        for i,x_i in enumerate(x):
 
             if i>0: # Only the first loop will not be required to be segmented
-                start, end = self.scaled_region_estimator(id,length=data_length,ratio=2)
-                x_i = x_i[:, start:end,:]
+                if x_i.shape[-2] > t_dim:
+                    start, end = self.scaled_region_estimator(id,length=data_length,ratio=2)
+                    x_i = x_i[:, :, start:end,:]
             else: # get the temporal length of the scpectrogram
                 data_length = x_i.shape[-2]
 
             # Transfer the data to the current GPU device.
-            x_i = x.cuda(non_blocking=True)
+            x_i = x_i.cuda(non_blocking=True)
             if self.cfg.MODEL.FREEZE_ENCODER :
                 with torch.no_grad():
-                    out = self.encoder(x)
+                    out = self.encoder(x_i)
             else:
-                out = self.encoder(x)
+                out = self.encoder(x_i)
 
             # get labels and features
-            if self.ENCODER.RETURN_EMBD:
+            if self.cfg.ENCODER.RETURN_EMBD:
                 feats = out[0]
                 preds = out[1]
             elif self.cfg.ENCODER.RETURN_EMBD_ONLY:
@@ -84,17 +137,18 @@ class PlayItBack(torch.nn.Module):
                 preds = out[1]
                 feats = None
 
-            assert not (cfg.MODEL.IGNORE_DECODER and preds==None), "Cannot get predictions if Encoder only returns features and no Decoder is used. Either use a Decoder or set `ENCODER.RETURN_EMBD_ONLY` to False."
+            assert not (self.cfg.MODEL.IGNORE_DECODER and preds==None), "Cannot get predictions if Encoder only returns features and no Decoder is used. Either use a Decoder or set `ENCODER.RETURN_EMBD_ONLY` to False."
 
             # Should only be used with no playback so first predictions that are made are also returned
-            if cfg.MODEL.IGNORE_DECODER:
+            if self.cfg.MODEL.IGNORE_DECODER:
                 return preds
 
-            assert feats, "Cannot use the Decoder without extracted features."
+            assert feats is not None, "Cannot use the Decoder without extracted features."
 
             # Get saliency
-            _, id = get_salient_region_idx(feats)
-
+            closest_divisor = approx_divisor(t_dim//32, feats.shape[-2])
+            _, id = self.get_salient_region_idx(feats,temporal_dim=closest_divisor)
+            feats = rearrange(feats, 'b (h w) d -> b d w h',w=closest_divisor)
             en_feats.append(feats)
 
         # get decoder preds
@@ -124,7 +178,7 @@ def build_model(cfg, gpu_id=None):
 
     # Construct the model
     name = cfg.MODEL.MODEL_NAME
-    encoder = PlayItBack(cfg=cfg)
+    model = PlayItBack(cfg=cfg)
 
     if cfg.NUM_GPUS:
         if gpu_id is None:

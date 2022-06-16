@@ -43,29 +43,30 @@ def pack_audio(cfg, audio_record, temporal_sample_index):
     samples, sr = librosa.core.load(path_audio, sr=None, mono=False)
     assert sr == cfg.AUDIO_DATA.SAMPLING_RATE, \
         "Audio sampling rate ({}) does not match target sampling rate ({})".format(sr, cfg.AUDIO_DATA.SAMPLING_RATE)
-    start_idx, end_idx = get_start_end_idx(
-        samples.shape[0],
-        int(round(cfg.AUDIO_DATA.SAMPLING_RATE * cfg.AUDIO_DATA.CLIP_SECS)),
-        temporal_sample_index,
-        cfg.TEST.NUM_ENSEMBLE_VIEWS
-    )
-    spectrogram = _extract_sound_feature(cfg, samples, int(start_idx), int(end_idx))
 
     # Looping
+    spectrograms = []
     if cfg.MODEL.PLAYBACK > 0:
-        spectrograms = [spectrogram]
-        max_iter = cfg.MODEL.PLAYBACK+2
-        num_frames = cfg.AUDIO_DATA.NUM_FRAMES
-        for i in range(2, max_iter):
-            # recursively get spectrograms
-            cfg.MODEL.PLAYBACK = 0
-            cfg.MODEL.IGNORE_DECODER = True
-            cfg.AUDIO_DATA.NUM_FRAMES = num_frames/i
-            cfg.AUDIO_DATA.HOP_LENGTH = 0.0249951175 * cfg.AUDIO_DATA.NUM_FRAMES
-            spec = pack_audio(cfg, audio_record, i)
-            spectrograms.append(spec[0])
-        return spectrograms
-    return [spectrogram]
+        max_iter = cfg.MODEL.PLAYBACK+1
+    else:
+        max_iter = 2
+    num_frames = cfg.AUDIO_DATA.NUM_FRAMES
+    for i in range(0, max_iter):
+        cfg.MODEL.PLAYBACK = 0
+        cfg.MODEL.IGNORE_DECODER = True
+        cfg.AUDIO_DATA.NUM_FRAMES = num_frames/(i+1)
+        cfg.AUDIO_DATA.HOP_LENGTH = 0.0249951175 * cfg.AUDIO_DATA.NUM_FRAMES
+        start_idx, end_idx = get_start_end_idx(
+            samples.shape[0],
+            int(round(cfg.AUDIO_DATA.SAMPLING_RATE * cfg.AUDIO_DATA.CLIP_SECS)),
+            temporal_sample_index,
+            cfg.TEST.NUM_ENSEMBLE_VIEWS
+        )
+        spectrogram = _extract_sound_feature(cfg, samples, int(start_idx), int(end_idx))
+        cfg.AUDIO_DATA.NUM_FRAMES = num_frames
+        cfg.AUDIO_DATA.HOP_LENGTH = 0.0249951175 * cfg.AUDIO_DATA.NUM_FRAMES
+        spectrograms.append(spectrogram)
+    return spectrograms
 
 
 def _log_specgram(cfg, audio, window_size=10,

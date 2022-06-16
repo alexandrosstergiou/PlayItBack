@@ -725,6 +725,8 @@ class MViT(nn.Module):
 
         x = self.norm(x)
 
+        feats = x
+
         if self.return_emb_only:
             return x
 
@@ -734,7 +736,7 @@ class MViT(nn.Module):
             x = x.mean(1)
 
         if self.return_emb:
-            return x, self.head(x)
+            return feats, self.head(x)
         else:
             return self.head(x)
 

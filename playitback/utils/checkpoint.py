@@ -158,6 +158,8 @@ def load_checkpoint(
     ), "Checkpoint '{}' not found".format(path_to_checkpoint)
     logger.info("Loading network weights from {}.".format(path_to_checkpoint))
 
+    load_optimizer = True
+    load_scaler = True
     # Account for the DDP wrapper in the multi-gpu setting.
     ms = model.module if data_parallel else model
     # Load the checkpoint on CPU to avoid GPU mem spike.
@@ -188,17 +190,25 @@ def load_checkpoint(
     pre_train_dict = checkpoint["model_state"]
     model_dict = ms.state_dict()
     # Match pre-trained weights that have same shape as current model.
-    pre_train_dict_match = {
-        k: v
-        for k, v in pre_train_dict.items()
-        if k in model_dict and v.size() == model_dict[k].size()
-    }
+    # Felxibly in pre-trained model does not include `encoder` or `decoder` as part of the keys
+    pre_train_dict_match = {}
+    for k, v in pre_train_dict.items():
+        if k in model_dict and v.size() == model_dict[k].size():
+            pre_train_dict_match[k]=v
+        elif 'encoder.'+k in model_dict and v.size() == model_dict['encoder.'+k].size():
+            pre_train_dict_match['encoder.'+k]=v
+            load_optimizer = False
+            load_scaler = False
+        elif 'decoder.'+k in model_dict and v.size() == model_dict['decoder.'+k].size():
+            pre_train_dict_match['decoder.'+k]=v
+            load_optimizer = False
+            load_scaler = False
+
     # Weights that do not have match from the pre-trained model.
-    not_load_layers = [
-        k
-        for k in model_dict.keys()
-        if k not in pre_train_dict_match.keys()
-    ]
+    not_load_layers = []
+    for k in model_dict.keys():
+        if k not in pre_train_dict_match.keys() and 'encoder.'+k not in pre_train_dict_match.keys() and 'decoder.'+k not in pre_train_dict_match.keys():
+            not_load_layers.append(k)
     # Log weights that are not loaded with the pre-trained weights.
     if not_load_layers:
         for k in not_load_layers:
@@ -207,12 +217,14 @@ def load_checkpoint(
     ms.load_state_dict(pre_train_dict_match, strict=False)
 
     # Load the optimizer state (commonly not done when fine-tuning)
-    if "epoch" in checkpoint.keys() and not epoch_reset:
+    if "epoch" in checkpoint.keys() and not epoch_reset and load_optimizer:
         epoch = checkpoint["epoch"]
         if optimizer:
-            optimizer.load_state_dict(checkpoint["optimizer_state"])
+            if load_optimizer:
+                optimizer.load_state_dict(checkpoint["optimizer_state"])
         if scaler:
-            scaler.load_state_dict(checkpoint["scaler_state"])
+            if load_scaler:
+                scaler.load_state_dict(checkpoint["scaler_state"])
     else:
         epoch = -1
     return epoch

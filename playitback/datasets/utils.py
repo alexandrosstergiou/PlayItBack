@@ -18,7 +18,6 @@ def pack_pathway_output(cfg, spectrogram):
         spectrogram_list (list): list of tensors with the dimension of
             `channel` x `num frames` x `num frequencies`.
     """
-    #print('packed:',spectrogram.shape)
     spectrogram_list = [spectrogram]
     '''
     if cfg.MODEL.ARCH in cfg.MODEL.SINGLE_PATHWAY_ARCH:

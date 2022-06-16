@@ -242,7 +242,7 @@ class TemPr(nn.Module):
                           kernel_size=(cfg.DECODER.DEPTH),
                           bias=False),
                 nn.ReLU(inplace=True),
-                nn.Dropout(0.1)
+                nn.Dropout(0.1),
                 Rearrange('b c 1 -> b c'))
         else:
             self.fusion = nn.Identity()
@@ -281,7 +281,7 @@ class TemPr(nn.Module):
         for i,(cross_attn, cross_ff, self_attns) in enumerate(self.layers):
             # Cross attention
             x = cross_attn(x, context = data[i], mask = mask) + x
-            x = cross_ff(x_t) + x
+            x = cross_ff(x) + x
 
             # Latent Transformer
             for self_attn, self_ff in self_attns:

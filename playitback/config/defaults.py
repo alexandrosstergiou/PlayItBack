@@ -128,7 +128,7 @@ _C.TEST.SAVE_RESULTS_PATH = ""
 _C.MODEL = CfgNode()
 
 # Model architecture.
-_C.MODEL.ARCH = "HearItBackX2"
+_C.MODEL.MODEL_NAME = "PlayItBackX2"
 
 # The number of classes to predict for the model.
 _C.MODEL.NUM_CLASSES = 400
@@ -208,6 +208,9 @@ _C.DECODER.FINAL_CLASSIFIER_HEAD = True
 
 # Aggregation method for the tower predictors could be set to `mean` or `adaptive`
 _C.DECODER.FUSION = 'adaptive'
+
+# Number of attention towers
+_C.DECODER.DEPTH = 2
 
 # -----------------------------------------------------------------------------
 # ENCODER/MViT options

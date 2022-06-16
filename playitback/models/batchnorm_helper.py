@@ -9,7 +9,7 @@ import torch.distributed as dist
 import torch.nn as nn
 from torch.autograd.function import Function
 
-import slowfast.utils.distributed as du
+import playitback.utils.distributed as du
 
 
 def get_norm(cfg):

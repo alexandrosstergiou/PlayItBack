@@ -98,7 +98,7 @@ def _get_model_analysis_input(cfg):
         if cfg.NUM_GPUS:
             model_inputs[i] = model_inputs[i].cuda(non_blocking=True)
 
-    inputs = (model_inputs,)
+    inputs = (torch.stack([model_inputs[0] for p in range(cfg.MODEL.PLAYBACK+1)]),)
     return inputs
 
 

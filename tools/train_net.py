@@ -68,13 +68,8 @@ def train_epoch(
 
     for cur_iter, (inputs, labels, _, _) in enumerate(train_loader):
 
-        # Transfer the data to the current GPU device.
+        # Transfer the labels to the current GPU device.
         if cfg.NUM_GPUS:
-            if isinstance(inputs, (list,)):
-                for i in range(len(inputs)):
-                    inputs[i] = inputs[i].cuda(non_blocking=True)
-            else:
-                inputs = inputs.cuda(non_blocking=True)
             if isinstance(labels, (dict,)):
                 labels = {k: v.cuda() for k, v in labels.items()}
             else:
@@ -93,6 +88,10 @@ def train_epoch(
 
             optimizer.zero_grad()
             preds = model(inputs)
+
+
+            # TODO backwards evaluation
+            sys.exit()
 
             if isinstance(labels, (dict,)):
                 # Explicitly declare reduction to mean.
