@@ -51,6 +51,7 @@ def pack_audio(cfg, audio_record, temporal_sample_index):
     else:
         max_iter = 2
     num_frames = cfg.AUDIO_DATA.NUM_FRAMES
+    hop_length = cfg.AUDIO_DATA.HOP_LENGTH
     for i in range(0, max_iter):
         cfg.MODEL.PLAYBACK = 0
         cfg.MODEL.IGNORE_DECODER = True
@@ -62,9 +63,9 @@ def pack_audio(cfg, audio_record, temporal_sample_index):
             temporal_sample_index,
             cfg.TEST.NUM_ENSEMBLE_VIEWS
         )
-        spectrogram = _extract_sound_feature(cfg, samples, int(start_idx), int(end_idx))
+        spectrogram = _extract_sound_feature(cfg, samples, int(start_idx), int(end_idx), iter=i+1)
         cfg.AUDIO_DATA.NUM_FRAMES = num_frames
-        cfg.AUDIO_DATA.HOP_LENGTH = 0.0249951175 * cfg.AUDIO_DATA.NUM_FRAMES
+        cfg.AUDIO_DATA.HOP_LENGTH = hop_length
         spectrograms.append(spectrogram)
     return spectrograms
 
@@ -93,18 +94,19 @@ def _log_specgram(cfg, audio, window_size=10,
     return log_mel_spec.T
 
 
-def _extract_sound_feature(cfg, samples, start_idx, end_idx):
+def _extract_sound_feature(cfg, samples, start_idx, end_idx, iter=1):
     if samples.shape[0] < int(round(cfg.AUDIO_DATA.SAMPLING_RATE * cfg.AUDIO_DATA.CLIP_SECS)):
         spectrogram = _log_specgram(cfg, samples,
                                     window_size=cfg.AUDIO_DATA.WINDOW_LENGTH,
                                     step_size=cfg.AUDIO_DATA.HOP_LENGTH
                                     )
-        num_timesteps_to_pad = cfg.AUDIO_DATA.NUM_FRAMES - spectrogram.shape[0]
-        spectrogram = np.pad(spectrogram, ((0, num_timesteps_to_pad), (0, 0)), 'edge')
+        num_timesteps_to_pad = cfg.DATA_LOADER.TEST_CROP_SIZE[0]*iter - spectrogram.shape[0]
+        spectrogram = np.pad(spectrogram, ((0, int(num_timesteps_to_pad)), (0, 0)), 'edge')
     else:
         samples = samples[start_idx:end_idx]
         spectrogram = _log_specgram(cfg, samples,
                                     window_size=cfg.AUDIO_DATA.WINDOW_LENGTH,
                                     step_size=cfg.AUDIO_DATA.HOP_LENGTH
                                     )
-    return torch.tensor(spectrogram).unsqueeze(0)
+    spectrogram = torch.tensor(spectrogram).unsqueeze(0)
+    return spectrogram

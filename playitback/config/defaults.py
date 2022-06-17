@@ -201,7 +201,7 @@ _C.DECODER.WEIGHT_TIE_LAYERS = False
 _C.DECODER.FOURIER_ENCODE_DATA = True
 
 # Number of self attention blocks per cross attn.
-_C.DECODER.SELF_PER_CROSS_ATTN = 1
+_C.DECODER.SELF_PER_CROSS_ATTN = 3
 
 # mean pool and project embeddings to number of classes (num_classes) at the end
 _C.DECODER.FINAL_CLASSIFIER_HEAD = True
