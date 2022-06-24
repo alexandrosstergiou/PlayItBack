@@ -28,6 +28,35 @@ def approx_divisor(divisor,target):
             prev_div = x
 
 
+class Mlp(torch.nn.Module):
+    def __init__(
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=torch.nn.GELU,
+        drop_rate=0.0,
+    ):
+        super().__init__()
+        self.drop_rate = drop_rate
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = torch.nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = torch.nn.Linear(hidden_features, out_features)
+        if self.drop_rate > 0.0:
+            self.drop = torch.nn.Dropout(drop_rate)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        if self.drop_rate > 0.0:
+            x = self.drop(x)
+        x = self.fc2(x)
+        if self.drop_rate > 0.0:
+            x = self.drop(x)
+        return x
+
 class PlayItBack(torch.nn.Module):
 
     def __init__(self, cfg):
@@ -37,6 +66,14 @@ class PlayItBack(torch.nn.Module):
         self.encoder = MViT(cfg=cfg)
         if not cfg.MODEL.IGNORE_DECODER:
             self.decoder = TemPr(cfg=cfg)
+
+        self.mlps = torch.nn.ModuleList([])
+        for i in range(cfg.DECODER.DEPTH):
+            self.mlps.append(Mlp(
+                in_features=self.cfg.DECODER.INPUT_CHANNELS,
+                hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS * 2),
+                out_features=self.cfg.DECODER.INPUT_CHANNELS,
+            ))
 
     def scaled_region_estimator(self,id,length=400,ratio=2):
         # Calculate frames after the salient region in the scaled volume.
@@ -53,12 +90,15 @@ class PlayItBack(torch.nn.Module):
         if right_max_margin < length/2:
             return [int((length*ratio)-length), int(length*ratio)]
 
-    def get_salient_region_idx(self,emb,temporal_dim=13):
+    def get_salient_region_idx(self,emb,temporal_dim=13,idx=0):
 
         # Change the flattened dimension to time x frequency
         emb = rearrange(emb, 'b (h w) d -> b d w h',w=temporal_dim)
         # Reduce the frequency dimension
         emb = reduce(emb, 'b d w h -> b d w', 'mean')
+        emb_mlp = self.mlps[idx](rearrange(emb, 'b d w -> b w d'))
+
+        emb += rearrange(emb_mlp, 'b w d -> b d w')
 
         # Calculate the channel-wise min and max
         min = torch.min(emb, dim=-1, keepdim=True)[0]
@@ -147,7 +187,7 @@ class PlayItBack(torch.nn.Module):
 
             # Get saliency
             closest_divisor = approx_divisor(t_dim//32, feats.shape[-2])
-            _, id = self.get_salient_region_idx(feats,temporal_dim=closest_divisor)
+            _, id = self.get_salient_region_idx(feats,temporal_dim=closest_divisor,idx=i)
             feats = rearrange(feats, 'b (h w) d -> b d w h',w=closest_divisor)
             en_feats.append(feats)
 

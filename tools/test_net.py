@@ -50,12 +50,6 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
 
     for cur_iter, (inputs, labels, audio_idx, meta) in enumerate(test_loader):
         if cfg.NUM_GPUS:
-            # Transfer the data to the current GPU device.
-            if isinstance(inputs, (list,)):
-                for i in range(len(inputs)):
-                    inputs[i] = inputs[i].cuda(non_blocking=True)
-            else:
-                inputs = inputs.cuda(non_blocking=True)
 
             # Transfer the data to the current GPU device.
             if isinstance(labels, (dict,)):

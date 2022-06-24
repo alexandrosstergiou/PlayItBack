@@ -13,9 +13,6 @@ from fvcore.common.registry import Registry
 MODEL_REGISTRY = Registry("MODEL")
 MODEL_REGISTRY.__doc__ = ""
 
-#import adapool_cuda
-#from adaPool import IDWPool1d, EMPool1d, EDSCWPool1d, AdaPool1d
-
 
 # helpers
 def exists(val):
@@ -235,15 +232,12 @@ class TemPr(nn.Module):
                 Rearrange('b c 1 -> b c'))
         elif cfg.DECODER.FUSION == 'adaptive':
             self.fusion = torch.nn.Sequential(
-                Rearrange('b s c -> b c s'),
-                make_contiguous,
-                nn.Conv1d(in_channels=cfg.DECODER.LATENT_DIM,
-                          out_channels=cfg.DECODER.LATENT_DIM,
-                          kernel_size=(cfg.DECODER.DEPTH),
-                          bias=False),
-                nn.ReLU(inplace=True),
+                Rearrange('b s c -> b (s c)'),
+                nn.Linear(cfg.DECODER.LATENT_DIM * cfg.DECODER.DEPTH, cfg.DECODER.LATENT_DIM*2),
+                GEGLU(),
                 nn.Dropout(0.1),
-                Rearrange('b c 1 -> b c'))
+                nn.Linear(cfg.DECODER.LATENT_DIM, cfg.DECODER.LATENT_DIM))
+                #Rearrange('b c 1 -> b c'))
         else:
             self.fusion = nn.Identity()
 

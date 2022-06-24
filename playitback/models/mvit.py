@@ -478,6 +478,7 @@ class MultiScaleBlock(nn.Module):
         x_norm = self.norm2(x)
         x_mlp = self.mlp(x_norm)
 
+
         if not self.dim_mul_in_att and self.dim != self.dim_out:
             x = self.proj(x_norm)
         x = x + self.drop_path(x_mlp)
