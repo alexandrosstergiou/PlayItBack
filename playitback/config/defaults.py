@@ -209,6 +209,10 @@ _C.DECODER.FINAL_CLASSIFIER_HEAD = True
 # Aggregation method for the tower predictors could be set to `mean` or `adaptive`
 _C.DECODER.FUSION = 'adaptive'
 
+# Aggregation of features or predictions, could be set to `features` to fuse playback features and
+# use a single predictor or `predictions` to use multiple predictions and fuse them together.
+_C.DECODER.FUSION_LOC = 'features'
+
 # Number of attention towers
 _C.DECODER.DEPTH = 2
 

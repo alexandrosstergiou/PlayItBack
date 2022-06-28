@@ -177,6 +177,7 @@ class TemPr(nn.Module):
         self.max_freq = cfg.DECODER.MAX_FREQ
         self.num_freq_bands = cfg.DECODER.NUM_FREQ_BANDS
         self.depth = cfg.DECODER.DEPTH
+        self.f_loc = cfg.DECODER.FUSION_LOC
 
         self.fourier_encode_data = cfg.DECODER.FOURIER_ENCODE_DATA
         fourier_channels = (self.input_axis * ((self.num_freq_bands * 2) + 1)) if self.fourier_encode_data else 0
@@ -230,7 +231,28 @@ class TemPr(nn.Module):
                 make_contiguous,
                 nn.AvgPool1d(kernel_size=(cfg.DECODER.DEPTH),beta=(1)),
                 Rearrange('b c 1 -> b c'))
-        elif cfg.DECODER.FUSION == 'adaptive':
+        elif cfg.DECODER.FUSION == 'adaptive' and self.f_loc=='features':
+            self.fusion = torch.nn.Sequential(
+                Rearrange('b s c -> b c s'),
+                make_contiguous,
+                nn.Conv1d(in_channels=cfg.DECODER.LATENT_DIM,
+                          out_channels=cfg.DECODER.LATENT_DIM,
+                          kernel_size=(cfg.DECODER.DEPTH),
+                          bias=False),
+                nn.ReLU(inplace=True),
+                nn.Dropout(0.1),
+                Rearrange('b c 1 -> b c'))
+        elif cfg.DECODER.FUSION == 'adaptive' and self.f_loc=='predictions':
+            self.fusion = torch.nn.Sequential(
+                Rearrange('b s c -> b c s'),
+                make_contiguous,
+                nn.Conv1d(in_channels=self.num_classes,
+                          out_channels=self.num_classes,
+                          kernel_size=(cfg.DECODER.DEPTH),
+                          groups=self.num_classes,
+                          bias=False),
+                Rearrange('b c 1 -> b c'))
+        elif cfg.DECODER.FUSION == 'adaptive_concat' and self.f_loc=='features':
             self.fusion = torch.nn.Sequential(
                 Rearrange('b s c -> b (s c)'),
                 nn.Linear(cfg.DECODER.LATENT_DIM * cfg.DECODER.DEPTH, cfg.DECODER.LATENT_DIM*2),
@@ -286,10 +308,15 @@ class TemPr(nn.Module):
 
         # to logits
         x = self.reduce(torch.stack(x_list,dim=0))
-        x = self.fusion(x)
+        if self.f_loc=='features':
+            x = self.fusion(x)
+            # class predictions
+            pred = self.fc(x)
+        else:
+            # class predictions
+            pred = self.fc(x)
+            pred = self.fusion(pred)
 
-        # class predictions
-        pred = self.fc(x)
         # used for fetching embeddings
         if return_embeddings:
             return pred, x
