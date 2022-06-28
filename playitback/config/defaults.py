@@ -171,10 +171,10 @@ _C.DECODER.MAX_FREQ = 10
 _C.DECODER.INPUT_CHANNELS = 1
 
 # Number of latents, or induced set points, or centroids.
-_C.DECODER.NUM_LATENTS = 384
+_C.DECODER.NUM_LATENTS = 256
 
 # Latent dimension.
-_C.DECODER.LATENT_DIM = 768
+_C.DECODER.LATENT_DIM = 512
 
 # Number of heads for cross attention. Perceiver paper uses 1.
 _C.DECODER.CROSS_HEADS = 1
@@ -201,7 +201,7 @@ _C.DECODER.WEIGHT_TIE_LAYERS = False
 _C.DECODER.FOURIER_ENCODE_DATA = True
 
 # Number of self attention blocks per cross attn.
-_C.DECODER.SELF_PER_CROSS_ATTN = 2
+_C.DECODER.SELF_PER_CROSS_ATTN = 3
 
 # mean pool and project embeddings to number of classes (num_classes) at the end
 _C.DECODER.FINAL_CLASSIFIER_HEAD = True
