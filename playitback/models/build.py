@@ -4,7 +4,7 @@
 """Model construction functions."""
 import sys
 import torch
-
+import torch.nn.functional as F
 from .tempr import TemPr
 from .mvit import MViT
 
@@ -90,7 +90,50 @@ class PlayItBack(torch.nn.Module):
         if right_max_margin < length/2:
             return [int((length*ratio)-length), int(length*ratio)]
 
-    def get_salient_region_idx(self,emb,temporal_dim=13,idx=0):
+
+    def reginal_reg(self,act,idx,size):
+        tmp = torch.arange(start=0, end=size)
+        tmp = tmp.cuda(act.get_device()) if act.is_cuda else tmp
+        tmp = abs(tmp-idx)*-1
+        tmp += abs(tmp.min())
+        v_min, v_max = tmp.min(), tmp.max()
+        ratio = (act.max().item() - act.min().item()) / act.max().item()
+        tmp_p = (tmp - v_min)/(v_max - v_min) * (ratio) + (1.-ratio)
+        new_act = tmp_p * act
+
+        return new_act,tmp_p.unsqueeze(1)
+
+
+
+    def find_start_and_end(self,data_length,ids,mask):
+
+        b_ar = torch.where(mask <= mask.mean(dim=-1,keepdim=True), torch.tensor(0.,device=mask.device), mask)
+
+        start_ids = torch.tensor([0 for _ in range(b_ar.shape[0])], device=b_ar.device)
+        end_ids = torch.tensor([b_ar.shape[-1] for _ in range(b_ar.shape[0])], device=b_ar.device)
+
+        for b in range(b_ar.shape[0]):
+
+            idcs = ids[b]
+            idcs[idcs < b_ar.shape[-1]-1] += 1
+
+            # Find start indices
+            start = (b_ar.squeeze(1)[b,...,:idcs] == 0).int().argmin(dim=-1,keepdim=True)
+
+            # Find end indices
+            end = ids[b] + (b_ar.squeeze(1)[b,...,idcs:] == 0).int().argmax(dim=-1,keepdim=True)
+            # cases that `end`==`ids[b]` correspond to argmax returning `0`, thus they should be changed
+            # to the sequence length
+            end[end==ids[b]] = b_ar.shape[-1]-1
+
+            start_ids[b] = start
+            end_ids[b] = end
+
+        return start_ids, end_ids
+
+
+
+    def get_salient_region_idx(self,emb,temporal_dim=13,idx=0,data_length=400):
 
         # Change the flattened dimension to time x frequency
         emb = rearrange(emb, 'b (h w) d -> b d w h',w=temporal_dim)
@@ -105,11 +148,18 @@ class PlayItBack(torch.nn.Module):
         max = torch.max(emb, dim=-1, keepdim=True)[0]
         temporal_saliency = (emb - min) / (max - min)
         temporal_saliency = torch.sum(temporal_saliency, dim=1, keepdim=True)
-        temporal_saliency = torch.nn.functional.interpolate(temporal_saliency, size=(400), mode='linear', align_corners=False)
+        temporal_saliency = F.interpolate(temporal_saliency, size=(data_length), mode='linear', align_corners=False)
         id = torch.argmax(temporal_saliency, dim=-1)
-        if torch.is_tensor(id):
-            id = id[0]
-        return(temporal_saliency, id.item())
+        mask, dist = self.reginal_reg(temporal_saliency.squeeze(1),id,data_length)
+
+        min = torch.min(mask, dim=-1, keepdim=True)[0]
+        max = torch.max(mask, dim=-1, keepdim=True)[0]
+        mask = (mask - min) / (max - min)
+
+        start_idx, end_idx = self.find_start_and_end(data_length,id,mask)
+
+
+        return(temporal_saliency, id, mask, start_idx, end_idx)
 
 
     def rearrange_batched_data(self,x):
@@ -123,7 +173,7 @@ class PlayItBack(torch.nn.Module):
         return x_s
 
     def rearrange_data(self,x):
-        # assume x size: [(playbacks x c=1) x t x f]
+        # assume `x` size: [(playbacks x c=1) x t x f]
         playbacks = x.shape[0]
         base_t = x.shape[-2]/playbacks
         x_s = []
@@ -149,12 +199,13 @@ class PlayItBack(torch.nn.Module):
         id = 0
         t_dim = x[0].shape[-2]
 
+        # Iterate over playbacks: x [playbacks x b x c=1 x t x f]
         for i,x_i in enumerate(x):
 
             if i>0: # Only the first loop will not be required to be segmented
                 if x_i.shape[-2] > t_dim:
-                    start, end = self.scaled_region_estimator(id,length=data_length,ratio=2)
-                    x_i = x_i[:, :, start:end,:]
+                    x_tmp = [F.interpolate(x_i[j, :, start[j]*2:end[j]*2,:].unsqueeze(0),size=(t_dim,x_i.shape[-1])) for j in range(x_i.shape[0])]
+                    x_i = torch.stack(x_tmp).squeeze(1)
             else: # get the temporal length of the scpectrogram
                 data_length = x_i.shape[-2]
 
@@ -187,7 +238,7 @@ class PlayItBack(torch.nn.Module):
 
             # Get saliency
             closest_divisor = approx_divisor(t_dim//32, feats.shape[-2])
-            _, id = self.get_salient_region_idx(feats,temporal_dim=closest_divisor,idx=i)
+            _, id, mask, start, end = self.get_salient_region_idx(feats,temporal_dim=closest_divisor,idx=i,data_length=data_length)
             feats = rearrange(feats, 'b (h w) d -> b d w h',w=closest_divisor)
             en_feats.append(feats)
 
