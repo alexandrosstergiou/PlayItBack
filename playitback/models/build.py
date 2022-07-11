@@ -11,6 +11,94 @@ from .mvit import MViT
 from einops import rearrange, reduce
 
 
+class SlotAttention(torch.nn.Module):
+    def __init__(self, num_slots, dim, iters = 3, eps = 1e-8, hidden_dim = 128):
+        super().__init__()
+        self.num_slots = num_slots
+        self.iters = iters
+        self.eps = eps
+        self.scale = dim ** -0.5
+
+        self.slots_mu = torch.nn.Parameter(torch.randn(1, 1, dim))
+        self.slots_sigma = torch.nn.Parameter(torch.randn(1, 1, dim))
+
+        self.to_q = torch.nn.Linear(dim, dim)
+        self.to_k = torch.nn.Linear(dim, dim)
+        self.to_v = torch.nn.Linear(dim, dim)
+
+        self.gru = torch.nn.GRUCell(dim, dim)
+
+        hidden_dim = max(dim, hidden_dim)
+
+        self.fc1 = torch.nn.Linear(dim, hidden_dim)
+        self.fc2 = torch.nn.Linear(hidden_dim, dim)
+
+        self.norm_input  = torch.nn.LayerNorm(dim)
+        self.norm_slots  = torch.nn.LayerNorm(dim)
+        self.norm_pre_ff = torch.nn.LayerNorm(dim)
+
+    def forward(self, inputs, num_slots = None):
+        b, n, d = inputs.shape
+        n_s = num_slots if num_slots is not None else self.num_slots
+
+        mu = self.slots_mu.expand(b, n_s, -1)
+        sigma = self.slots_sigma.expand(b, n_s, -1)
+        slots = torch.normal(mu, sigma)
+
+        inputs = self.norm_input(inputs)
+        k, v = self.to_k(inputs), self.to_v(inputs)
+
+        for _ in range(self.iters):
+            slots_prev = slots
+
+            slots = self.norm_slots(slots)
+            q = self.to_q(slots)
+
+            dots = torch.einsum('bid,bjd->bij', q, k) * self.scale
+            attn = dots.softmax(dim=1) + self.eps
+            attn = attn / attn.sum(dim=-1, keepdim=True)
+
+            updates = torch.einsum('bjd,bij->bid', v, attn)
+
+            slots = self.gru(
+                updates.reshape(-1, d),
+                slots_prev.reshape(-1, d)
+            )
+
+            slots = slots.reshape(b, -1, d)
+            slots = slots + self.fc2(F.relu(self.fc1(self.norm_pre_ff(slots))))
+
+        return slots
+
+def build_grid(resolution):
+    ranges = [np.linspace(0., 1., num=res) for res in resolution]
+    grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
+    grid = np.stack(grid, axis=-1)
+    grid = np.reshape(grid, [resolution[0], resolution[1], -1])
+    grid = np.expand_dims(grid, axis=0)
+    grid = grid.astype(np.float32)
+    return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1)).to(device)
+
+
+"""Adds soft positional embedding with learnable projection."""
+class SoftPositionEmbed(torch.nn.Module):
+    def __init__(self, hidden_size, resolution):
+        """Builds the soft position embedding layer.
+        Args:
+        hidden_size: Size of input feature dimension.
+        resolution: Tuple of integers specifying width and height of grid.
+        """
+        super().__init__()
+        self.embedding = torch.nn.Linear(4, hidden_size, bias=True)
+        self.grid = build_grid(resolution)
+
+    def forward(self, inputs):
+        grid = self.embedding(self.grid)
+        return inputs + grid
+
+
+
+
 def approx_divisor(divisor,target):
     prev_div = 1
     for x in range(1,target+1):
@@ -67,12 +155,19 @@ class PlayItBack(torch.nn.Module):
         if not cfg.MODEL.IGNORE_DECODER:
             self.decoder = TemPr(cfg=cfg)
 
-        self.mlps = torch.nn.ModuleList([])
+        self.saliency_mlps = torch.nn.ModuleList([])
+        self.mask_mlps = torch.nn.ModuleList([])
+
         for i in range(cfg.DECODER.DEPTH):
-            self.mlps.append(Mlp(
+            self.saliency_mlps.append(Mlp(
                 in_features=self.cfg.DECODER.INPUT_CHANNELS,
                 hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS * 2),
                 out_features=self.cfg.DECODER.INPUT_CHANNELS,
+            ))
+            self.mask_mlps.append(Mlp(
+                in_features=1,
+                hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS),
+                out_features=1,
             ))
 
     def scaled_region_estimator(self,id,length=400,ratio=2):
@@ -139,18 +234,30 @@ class PlayItBack(torch.nn.Module):
         emb = rearrange(emb, 'b (h w) d -> b d w h',w=temporal_dim)
         # Reduce the frequency dimension
         emb = reduce(emb, 'b d w h -> b d w', 'mean')
-        emb_mlp = self.mlps[idx](rearrange(emb, 'b d w -> b w d'))
 
-        emb += rearrange(emb_mlp, 'b w d -> b d w')
+        emb_s = self.saliency_mlps[idx](rearrange(emb, 'b d w -> b w d'))
+
+        emb_m = torch.sum(emb, dim=1, keepdim=True)
+        emb_m = self.mask_mlps[idx](rearrange(emb_m, 'b d w -> b w d'))
+        emb_m = rearrange(emb_m, 'b w d -> b d w')
+
+
+        emb_s = emb + rearrange(emb_s, 'b w d -> b d w')
 
         # Calculate the channel-wise min and max
-        min = torch.min(emb, dim=-1, keepdim=True)[0]
-        max = torch.max(emb, dim=-1, keepdim=True)[0]
-        temporal_saliency = (emb - min) / (max - min)
+        min = torch.min(emb_s, dim=-1, keepdim=True)[0]
+        max = torch.max(emb_s, dim=-1, keepdim=True)[0]
+        temporal_saliency = (emb_s - min) / (max - min)
         temporal_saliency = torch.sum(temporal_saliency, dim=1, keepdim=True)
         temporal_saliency = F.interpolate(temporal_saliency, size=(data_length), mode='linear', align_corners=False)
+
         id = torch.argmax(temporal_saliency, dim=-1)
-        mask, dist = self.reginal_reg(temporal_saliency.squeeze(1),id,data_length)
+
+        emb_m = F.interpolate(emb_m, size=(data_length), mode='linear', align_corners=False)
+
+        _, dist = self.reginal_reg(emb_m,id,data_length)
+
+        mask = temporal_saliency * dist
 
         min = torch.min(mask, dim=-1, keepdim=True)[0]
         max = torch.max(mask, dim=-1, keepdim=True)[0]

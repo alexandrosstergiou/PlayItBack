@@ -8,6 +8,31 @@ import torch.nn as nn
 import torch.nn as nn
 import torch.nn.functional as F
 
+from einops import rearrange
+
+class Rank(nn.Module):
+    """
+    Pairwise rank loss between predictions
+    """
+
+    def __init__(self):
+        super(Rank, self).__init__()
+
+    def forward(self, p_is, cls_idx):
+
+        # Assume p_is: [s x b x cls], cls_idx: [b]
+
+        # get class probabilities
+        probs = rearrange(p_is[:,:,cls_idx].squeeze(-1), 's b -> b s')
+
+        # shift 
+
+
+        return
+
+
+
+
 class SoftTargetCrossEntropy(nn.Module):
     """
     Cross entropy loss with soft target.
