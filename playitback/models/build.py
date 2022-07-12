@@ -435,6 +435,20 @@ class PlayItBack(torch.nn.Module):
 
             indices = self.get_indices(diag_mask)
 
+            tmp_f = rearrange(feats, 'b d w h -> b d (h w)')
+            pos_slot = pos_slot.squeeze(1)
+            pos_slot = F.interpolate(pos_slot, size=(tmp_f.shape[-1])).permute(0,2,1)
+            inverse_neg_slot = inverse_neg_slot.squeeze(-2)
+            inverse_neg_slot = F.interpolate(inverse_neg_slot, size=(tmp_f.shape[-1])).permute(0,2,1)
+
+            tmp_f = rearrange(tmp_f, 'b h d -> b d h')
+            tmp_f_pos = tmp_f * pos_slot
+            tmp_f_neg = tmp_f * inverse_neg_slot
+
+            with torch.no_grad():
+                pred_pos = self.encoder.head(tmp_f_pos)
+                pred_neg = self.encoder.head(tmp_f_neg)
+
 
 
 
