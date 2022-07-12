@@ -8,7 +8,10 @@ import torch.nn.functional as F
 from .tempr import TemPr
 from .mvit import MViT
 
+import numpy as np
 from einops import rearrange, reduce
+
+from einops.layers.torch import Rearrange, Reduce
 
 
 class SlotAttention(torch.nn.Module):
@@ -19,8 +22,8 @@ class SlotAttention(torch.nn.Module):
         self.eps = eps
         self.scale = dim ** -0.5
 
-        self.slots_mu = torch.nn.Parameter(torch.randn(1, 1, dim))
-        self.slots_sigma = torch.nn.Parameter(torch.randn(1, 1, dim))
+        self.slots_mu = torch.nn.Parameter(abs(torch.randn(1, 1, dim)))
+        self.slots_sigma = torch.nn.Parameter(abs(torch.randn(1, 1, dim)))
 
         self.to_q = torch.nn.Linear(dim, dim)
         self.to_k = torch.nn.Linear(dim, dim)
@@ -70,15 +73,6 @@ class SlotAttention(torch.nn.Module):
 
         return slots
 
-def build_grid(resolution):
-    ranges = [np.linspace(0., 1., num=res) for res in resolution]
-    grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
-    grid = np.stack(grid, axis=-1)
-    grid = np.reshape(grid, [resolution[0], resolution[1], -1])
-    grid = np.expand_dims(grid, axis=0)
-    grid = grid.astype(np.float32)
-    return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1)).to(device)
-
 
 """Adds soft positional embedding with learnable projection."""
 class SoftPositionEmbed(torch.nn.Module):
@@ -89,11 +83,25 @@ class SoftPositionEmbed(torch.nn.Module):
         resolution: Tuple of integers specifying width and height of grid.
         """
         super().__init__()
-        self.embedding = torch.nn.Linear(4, hidden_size, bias=True)
-        self.grid = build_grid(resolution)
+        self.embedding = torch.nn.Linear(2, hidden_size, bias=True)
+        self.grid = self.build_grid(resolution)
+
+    def build_grid(self,resolution):
+        ranges = [np.linspace(0., 1., num=resolution)]
+        grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
+        grid = np.stack(grid, axis=-1)
+        grid = np.reshape(grid, [resolution, -1])
+        grid = np.expand_dims(grid, axis=0)
+        grid = grid.astype(np.float32)
+        return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1))
+
+    def set_grid_device(self,target):
+        self.grid = self.grid.to(target)
 
     def forward(self, inputs):
+        self.set_grid_device(inputs.device)
         grid = self.embedding(self.grid)
+        inputs = rearrange(inputs,'b c t -> b t c')
         return inputs + grid
 
 
@@ -155,19 +163,18 @@ class PlayItBack(torch.nn.Module):
         if not cfg.MODEL.IGNORE_DECODER:
             self.decoder = TemPr(cfg=cfg)
 
-        self.saliency_mlps = torch.nn.ModuleList([])
-        self.mask_mlps = torch.nn.ModuleList([])
+        res = 400
+        self.saliency_slots = torch.nn.ModuleList([])
 
         for i in range(cfg.DECODER.DEPTH):
-            self.saliency_mlps.append(Mlp(
-                in_features=self.cfg.DECODER.INPUT_CHANNELS,
-                hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS * 2),
-                out_features=self.cfg.DECODER.INPUT_CHANNELS,
-            ))
-            self.mask_mlps.append(Mlp(
-                in_features=1,
-                hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS),
-                out_features=1,
+            self.saliency_slots.append(
+                torch.nn.Sequential(
+                SoftPositionEmbed(hidden_size=self.cfg.DECODER.INPUT_CHANNELS, resolution=res),
+                Rearrange('b t c -> b c t'),
+                SlotAttention(num_slots=2,dim=res)#,
+                #Mlp(in_features=self.cfg.DECODER.INPUT_CHANNELS,
+                #hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS * 2),
+                #out_features=self.cfg.DECODER.INPUT_CHANNELS)
             ))
 
     def scaled_region_estimator(self,id,length=400,ratio=2):
@@ -197,6 +204,26 @@ class PlayItBack(torch.nn.Module):
         new_act = tmp_p * act
 
         return new_act,tmp_p.unsqueeze(1)
+
+
+    def get_indices(self,emb):
+        no_zeros = emb.nonzero()
+        indices = {}
+        for p in no_zeros:
+            if p[0].item() in indices.keys():
+                if len(indices[p[0].item()]['start']) > len(indices[p[0].item()]['end']):
+                    indices[p[0].item()]['end'].append(p[1].item())
+                else:
+                    indices[p[0].item()]['start'].append(p[1].item())
+            else:
+                indices
+                indices[p[0].item()] = {'start':[p[1].item()], 'end':[]}
+        # re-iterate to assign end positions
+        for k in indices.keys():
+            if len(indices[k]['start']) > len(indices[k]['end']):
+                 indices[k]['end'].append(emb.shape[-1]-1)
+
+        return indices
 
 
 
@@ -311,8 +338,34 @@ class PlayItBack(torch.nn.Module):
 
             if i>0: # Only the first loop will not be required to be segmented
                 if x_i.shape[-2] > t_dim:
-                    x_tmp = [F.interpolate(x_i[j, :, start[j]*2:end[j]*2,:].unsqueeze(0),size=(t_dim,x_i.shape[-1])) for j in range(x_i.shape[0])]
-                    x_i = torch.stack(x_tmp).squeeze(1)
+                    ratio = int(x_i.shape[-2]/x[i-1].shape[-2])
+                    batched_new_x = []
+                    for b in indices.keys():
+                        tmp = x[i-1][b,:,:indices[b]['start'][0]]
+                        if len(tmp.shape) < 3:
+                            tmp = tmp.unsqueeze(1)
+                        new_x = [tmp]
+                        for indx in range(len(indices[b]['start'])):
+
+                            slice = x_i[b,:,indices[b]['start'][indx]*ratio:indices[b]['end'][indx]*ratio,:]
+                            if len(slice.shape) < 3:
+                                slice = slice.unsqueeze(1)
+                            new_x.append(slice)
+
+                            if indx+1 < len(indices[b]['start']):
+                                prev = x[i-1][b,:,indices[b]['end'][indx]:indices[b]['start'][indx+1],:]
+                            else:
+                                prev = x[i-1][b,:,indices[b]['end'][indx]:,:]
+
+                            if len(prev.shape) < 3:
+                                prev = prev.unsqueeze(1)
+                            new_x.append(prev)
+
+
+                        new_x = torch.cat(new_x, dim=-2).unsqueeze(0)
+                        new_x = F.interpolate(new_x, size=(t_dim,x_i.shape[-1]))
+                        batched_new_x.append(new_x)
+                    x_i = torch.stack(batched_new_x).squeeze(1)
             else: # get the temporal length of the scpectrogram
                 data_length = x_i.shape[-2]
 
@@ -344,10 +397,46 @@ class PlayItBack(torch.nn.Module):
             assert feats is not None, "Cannot use the Decoder without extracted features."
 
             # Get saliency
+
             closest_divisor = approx_divisor(t_dim//32, feats.shape[-2])
-            _, id, mask, start, end = self.get_salient_region_idx(feats,temporal_dim=closest_divisor,idx=i,data_length=data_length)
+            #_, id, mask, start, end = self.get_salient_region_idx(feats,temporal_dim=closest_divisor,idx=i,data_length=data_length)
             feats = rearrange(feats, 'b (h w) d -> b d w h',w=closest_divisor)
             en_feats.append(feats)
+
+            # Reduce the frequency dimension
+            feats_reduced = reduce(feats, 'b d w h -> b d w', 'mean')
+            feats_reduced = F.interpolate(feats_reduced, size=(t_dim), mode='linear', align_corners=False)
+
+            # slot-attention
+            s_slots = self.saliency_slots[i](feats_reduced) # B x SLOTS x t_dim
+            pos_slot, neg_slot = torch.split(s_slots,1,1)
+
+            # shifting
+            pos_slot = pos_slot + abs(pos_slot.min())
+            neg_slot = neg_slot + abs(neg_slot.min())
+
+            # inverse
+            inverse_neg_slot = neg_slot - 1.
+            inverse_neg_slot = abs(inverse_neg_slot)
+
+            inverse_neg_slot = inverse_neg_slot.unsqueeze(1) # B x 1 x T
+            pos_slot = pos_slot.unsqueeze(2) # B x T x 1
+
+            comp = inverse_neg_slot - pos_slot
+            diag = torch.diagonal(comp, dim1=1, dim2=2)
+            diag = diag.squeeze(-1)
+
+            # normalise
+            min = torch.min(diag, dim=-1, keepdim=True)[0]
+            max = torch.max(diag, dim=-1, keepdim=True)[0]
+            diag = (diag - min) / (max - min)
+
+            diag_mask = torch.where(diag <= diag.mean(dim=-1,keepdim=True), torch.tensor(0.,device=diag.device), torch.tensor(1.,device=diag.device))
+
+            indices = self.get_indices(diag_mask)
+
+
+
 
         # get decoder preds
         de_preds = self.decoder(en_feats)
