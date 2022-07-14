@@ -61,6 +61,9 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
 
         # Perform the forward pass.
         preds = model(inputs)
+        pos_pred = preds[1]
+        neg_pred = preds[2]
+        preds = preds[0]
 
         if isinstance(labels, (dict,)):
             # Gather all the predictions across all the devices to perform ensemble.

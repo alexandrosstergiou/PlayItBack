@@ -154,6 +154,9 @@ _C.MODEL.IGNORE_DECODER = False
 # PlayItBack loops.
 _C.MODEL.PLAYBACK = 3
 
+# PlayItBack weights.
+_C.MODEL.PLAYBACK_WEIGHTS = .3
+
 
 # -----------------------------------------------------------------------------
 # DECODER/TEMPR options

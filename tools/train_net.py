@@ -68,6 +68,8 @@ def train_epoch(
 
     for cur_iter, (inputs, labels, _, _) in enumerate(train_loader):
 
+        cached_labels = labels
+
         # Transfer the labels to the current GPU device.
         if cfg.NUM_GPUS:
             if isinstance(labels, (dict,)):
@@ -89,6 +91,10 @@ def train_epoch(
             optimizer.zero_grad()
             preds = model(inputs)
 
+            pos_pred = preds[1]
+            neg_pred = preds[2]
+            preds = preds[0]
+
             if isinstance(labels, (dict,)):
                 # Explicitly declare reduction to mean.
                 loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
@@ -103,9 +109,16 @@ def train_epoch(
             else:
                 # Explicitly declare reduction to mean.
                 loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
+                loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
 
                 # Compute the loss.
                 loss = loss_fun(preds, labels)
+
+                pos_loss = loss_fun_pb(pos_pred, cached_labels)
+                neg_loss = loss_fun_pb(neg_pred, cached_labels)
+
+                pb_loss = 0.1 * (pos_loss + neg_loss)
+                loss = loss + pb_loss
 
                 # check Nan Loss.
                 misc.check_nan_losses(loss)
@@ -330,6 +343,9 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         val_meter.data_toc()
 
         preds = model(inputs)
+        pos_pred = preds[1]
+        neg_pred = preds[2]
+        preds = preds[0]
 
         if isinstance(labels, (dict,)):
             # Explicitly declare reduction to mean.
@@ -437,9 +453,16 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         else:
             # Explicitly declare reduction to mean.
             loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
+            loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
 
             # Compute the loss.
             loss = loss_fun(preds, labels)
+
+            pos_loss = loss_fun_pb(pos_pred, labels)
+            neg_loss = loss_fun_pb(neg_pred, labels)
+
+            pb_loss = 0.1 * (pos_loss + neg_loss)
+            loss = loss + pb_loss
 
             if cfg.DATA.MULTI_LABEL:
                 if cfg.NUM_GPUS > 1:

@@ -165,6 +165,7 @@ class PlayItBack(torch.nn.Module):
 
         res = 400
         self.saliency_slots = torch.nn.ModuleList([])
+        self.norm = torch.nn.LayerNorm(self.cfg.DECODER.INPUT_CHANNELS)
 
         for i in range(cfg.DECODER.DEPTH):
             self.saliency_slots.append(
@@ -333,6 +334,9 @@ class PlayItBack(torch.nn.Module):
         id = 0
         t_dim = x[0].shape[-2]
 
+        pos_p = []
+        neg_p = []
+
         # Iterate over playbacks: x [playbacks x b x c=1 x t x f]
         for i,x_i in enumerate(x):
 
@@ -445,17 +449,19 @@ class PlayItBack(torch.nn.Module):
             tmp_f_pos = tmp_f * pos_slot
             tmp_f_neg = tmp_f * inverse_neg_slot
 
+            #tmp_f_pos = rearrange(tmp_f_pos, 'b d h -> b h d')
+            #tmp_f_neg = rearrange(tmp_f_neg, 'b d h -> b h d')
+
             with torch.no_grad():
-                pred_pos = self.encoder.head(tmp_f_pos)
-                pred_neg = self.encoder.head(tmp_f_neg)
-
-
-
+                pred_pos = self.encoder.head(tmp_f_pos.mean(1))
+                pred_neg = self.encoder.head(tmp_f_neg.mean(1))
+            pos_p.append(pred_pos)
+            neg_p.append(pred_neg)
 
         # get decoder preds
         de_preds = self.decoder(en_feats)
 
-        return de_preds
+        return [de_preds, pos_p, neg_p]
 
 
 
