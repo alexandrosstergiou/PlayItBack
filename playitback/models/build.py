@@ -84,23 +84,19 @@ class SoftPositionEmbed(torch.nn.Module):
         """
         super().__init__()
         self.embedding = torch.nn.Linear(2, hidden_size, bias=True)
-        self.grid = self.build_grid(resolution)
 
-    def build_grid(self,resolution):
+    def build_grid(self,resolution,device):
         ranges = [np.linspace(0., 1., num=resolution)]
         grid = np.meshgrid(*ranges, sparse=False, indexing="ij")
         grid = np.stack(grid, axis=-1)
         grid = np.reshape(grid, [resolution, -1])
         grid = np.expand_dims(grid, axis=0)
         grid = grid.astype(np.float32)
-        return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1))
-
-    def set_grid_device(self,target):
-        self.grid = self.grid.to(target)
+        return torch.from_numpy(np.concatenate([grid, 1.0 - grid], axis=-1)).to(device)
 
     def forward(self, inputs):
-        self.set_grid_device(inputs.device)
-        grid = self.embedding(self.grid)
+        grid = self.build_grid(resolution=inputs.shape[-1],device=inputs.device)
+        grid = self.embedding(grid)
         inputs = rearrange(inputs,'b c t -> b t c')
         return inputs + grid
 
@@ -172,6 +168,7 @@ class PlayItBack(torch.nn.Module):
                 torch.nn.Sequential(
                 SoftPositionEmbed(hidden_size=self.cfg.DECODER.INPUT_CHANNELS, resolution=res),
                 Rearrange('b t c -> b c t'),
+                torch.nn.Upsample(size=res),
                 SlotAttention(num_slots=2,dim=res)#,
                 #Mlp(in_features=self.cfg.DECODER.INPUT_CHANNELS,
                 #hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS * 2),
