@@ -435,7 +435,7 @@ _C.OUTPUT_DIR = "./tmp"
 _C.RNG_SEED = 1
 
 # Log period in iters.
-_C.LOG_PERIOD = 10
+_C.LOG_PERIOD = 1
 
 # If True, log the model info.
 _C.LOG_MODEL_INFO = True
@@ -501,6 +501,24 @@ _C.VGGSOUND.TRAIN_LIST = "train.pkl"
 _C.VGGSOUND.VAL_LIST = "test.pkl"
 
 _C.VGGSOUND.TEST_LIST = "test.pkl"
+
+
+# -----------------------------------------------------------------------------
+# Audioset Dataset options
+# -----------------------------------------------------------------------------
+_C.AUDIOSET = CfgNode()
+
+_C.AUDIOSET.AUDIO_DATA_DIR = ""
+
+_C.AUDIOSET.ANNOTATIONS_DIR = ""
+
+_C.AUDIOSET.SET = 'balanced'
+
+_C.AUDIOSET.TRAIN_LIST = "train_{}.pkl".format(_C.AUDIOSET.SET)
+
+_C.AUDIOSET.VAL_LIST = "test.pkl"
+
+_C.AUDIOSET.TEST_LIST = "test.pkl"
 
 
 # -----------------------------------------------------------------------------

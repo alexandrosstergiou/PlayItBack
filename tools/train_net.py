@@ -9,6 +9,7 @@ import pprint
 import wandb
 import torch
 from fvcore.nn.precise_bn import get_bn_modules, update_bn_stats
+from sklearn import metrics as skmetrics
 
 import sys
 import os
@@ -25,6 +26,8 @@ from playitback.datasets import loader
 from playitback.datasets.mixup import MixUp
 from playitback.models import build_model
 from playitback.utils.meters import TrainMeter, ValMeter, EPICTrainMeter, EPICValMeter
+
+from einops import reduce
 
 logger = logging.get_logger(__name__)
 
@@ -91,17 +94,22 @@ def train_epoch(
             optimizer.zero_grad()
             preds = model(inputs)
 
-            pos_pred = preds[1]
-            neg_pred = preds[2]
-            preds = preds[0]
+            if not cfg.MODEL.IGNORE_DECODER:
+                pos_pred = preds[1]
+                neg_pred = preds[2]
+
+                playback_preds = preds[0][1]
+                preds = preds[0][0]
 
             if isinstance(labels, (dict,)):
                 # Explicitly declare reduction to mean.
                 loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
 
-                # Compute the loss.
-                loss_verb = loss_fun(preds[0], labels['verb'])
-                loss_noun = loss_fun(preds[1], labels['noun'])
+                # Compute the (per-playback) loss.
+
+
+                loss_verb = torch,mean([loss_fun(playback_preds[0][i], labels['verb']) for i in range(playback_preds[0].shape[0])])
+                loss_noun = torch,mean([loss_fun(preds[1][i], labels['noun']) for i in range(playback_preds[0].shape[0])])
                 loss = 0.5 * (loss_verb + loss_noun)
 
                 # check Nan Loss.
@@ -109,16 +117,27 @@ def train_epoch(
             else:
                 # Explicitly declare reduction to mean.
                 loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
-                loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
+                if not cfg.MODEL.IGNORE_DECODER:
+                    loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
 
                 # Compute the loss.
-                loss = loss_fun(preds, labels)
+                loss = 0.
+                for i in range(playback_preds.shape[0]):
+                    loss_i = loss_fun(playback_preds[i],labels)
+                    loss = loss_i + loss
 
-                pos_loss = loss_fun_pb(pos_pred, cached_labels)
-                neg_loss = loss_fun_pb(neg_pred, cached_labels)
+                if cfg.MODEL.PLAYBACK > 0:
+                    loss = loss_fun(preds,labels) + 0.1 * loss
+                if not cfg.MODEL.IGNORE_DECODER:
+                    if cfg.MODEL.LOSS_FUNC != 'cross_entropy':
+                        use_multilabel = True
+                    else:
+                        use_multilabel = False
+                    pos_loss = loss_fun_pb(pos_pred, cached_labels, multilabel=use_multilabel)
+                    neg_loss = loss_fun_pb(neg_pred, cached_labels, multilabel=use_multilabel)
 
-                pb_loss = 0.1 * (pos_loss + neg_loss)
-                loss = loss + pb_loss
+                    pb_loss = 0.1 * (pos_loss + neg_loss)
+                    loss = loss + pb_loss
 
                 # check Nan Loss.
                 misc.check_nan_losses(loss)
@@ -205,6 +224,7 @@ def train_epoch(
             train_meter.update_stats(
                 (verb_top1_acc, noun_top1_acc, action_top1_acc),
                 (verb_top5_acc, noun_top5_acc, action_top5_acc),
+                None,
                 (loss_verb, loss_noun, loss),
                 lr,
                 inputs[0].size(0)
@@ -247,12 +267,17 @@ def train_epoch(
                     },
                 )
         else:
-            top1_err, top5_err = None, None
+            top1_err, top5_err, avg_pr = None, None, None
             if cfg.DATA.MULTI_LABEL:
                 # Gather all the predictions across all the devices.
                 if cfg.NUM_GPUS > 1:
                     [loss] = du.all_reduce([loss])
                 loss = loss.item()
+                # Average precision over multi-label
+                avg_pr = 0.
+                for b in range(labels.shape[0]):
+                    avg_pr += skmetrics.average_precision_score(labels[b].cpu().detach().numpy(), preds[b].cpu().detach().numpy())
+                avg_pr /= labels.shape[0]
             else:
                 # Compute the errors.
                 num_topks_correct = metrics.topks_correct(preds, labels, (1, 5))
@@ -276,6 +301,7 @@ def train_epoch(
             train_meter.update_stats(
                 top1_err,
                 top5_err,
+                avg_pr,
                 loss,
                 lr,
                 inputs[0].size(0)
@@ -285,26 +311,46 @@ def train_epoch(
             )
             # write to tensorboard format if available.
             if writer is not None and not wandb_log:
-                writer.add_scalars(
-                    {
-                        "Train/loss": loss,
-                        "Train/lr": lr,
-                        "Train/Top1_err": top1_err,
-                        "Train/Top5_err": top5_err,
-                    },
-                    global_step=data_size * cur_epoch + cur_iter,
-                )
+                if cfg.DATA.MULTI_LABEL:
+                    writer.add_scalars(
+                        {
+                            "Train/loss": loss,
+                            "Train/lr": lr,
+                            "Train/mAP": avg_pr
+                        },
+                        global_step=data_size * cur_epoch + cur_iter,
+                    )
+                else:
+                    writer.add_scalars(
+                        {
+                            "Train/loss": loss,
+                            "Train/lr": lr,
+                            "Train/Top1_err": top1_err,
+                            "Train/Top5_err": top5_err,
+                        },
+                        global_step=data_size * cur_epoch + cur_iter,
+                    )
 
             if wandb_log:
-                wandb.log(
-                    {
-                        "Train/loss": loss,
-                        "Train/lr": lr,
-                        "Train/Top1_err": top1_err,
-                        "Train/Top5_err": top5_err,
-                        "train_step": data_size * cur_epoch + cur_iter,
-                    },
-                )
+                if cfg.DATA.MULTI_LABEL:
+                    wandb.log(
+                        {
+                            "Train/loss": loss,
+                            "Train/lr": lr,
+                            "Train/mAP": avg_pr,
+                            "train_step": data_size * cur_epoch + cur_iter,
+                        },
+                    )
+                else:
+                    wandb.log(
+                        {
+                            "Train/loss": loss,
+                            "Train/lr": lr,
+                            "Train/Top1_err": top1_err,
+                            "Train/Top5_err": top5_err,
+                            "train_step": data_size * cur_epoch + cur_iter,
+                        },
+                    )
 
         train_meter.iter_toc()  # measure allreduce for this meter
         train_meter.log_iter_stats(cur_epoch, cur_iter)
@@ -345,7 +391,9 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         preds = model(inputs)
         pos_pred = preds[1]
         neg_pred = preds[2]
-        preds = preds[0]
+
+        playback_preds = preds[0][1]
+        preds = preds[0][0]
 
         if isinstance(labels, (dict,)):
             # Explicitly declare reduction to mean.
@@ -410,6 +458,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
             val_meter.update_stats(
                 (verb_top1_acc, noun_top1_acc, action_top1_acc),
                 (verb_top5_acc, noun_top5_acc, action_top5_acc),
+                None,
                 inputs[0].size(0)
                 * max(
                     cfg.NUM_GPUS, 1
@@ -493,6 +542,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
                 val_meter.update_stats(
                     top1_err,
                     top5_err,
+                    avg_pr,
                     inputs[0].size(0)
                     * max(
                         cfg.NUM_GPUS, 1

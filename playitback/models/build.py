@@ -371,7 +371,7 @@ class PlayItBack(torch.nn.Module):
                 data_length = x_i.shape[-2]
 
             # Transfer the data to the current GPU device.
-            x_i = x_i.cuda(non_blocking=True)
+            x_i = x_i.cuda()
             if self.cfg.MODEL.FREEZE_ENCODER :
                 with torch.no_grad():
                     out = self.encoder(x_i)

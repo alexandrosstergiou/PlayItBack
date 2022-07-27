@@ -307,20 +307,20 @@ class TemPr(nn.Module):
             x_list.append(x)
 
         # to logits
-        x = self.reduce(torch.stack(x_list,dim=0))
+        x = self.reduce(torch.stack(x_list,dim=0)) # B x S x C
+        preds = self.fc(x)
         if self.f_loc=='features':
             x = self.fusion(x)
             # class predictions
             pred = self.fc(x)
         else:
             # class predictions
-            pred = self.fc(x)
-            pred = self.fusion(pred)
-
+            pred = self.fusion(preds)
+        preds = rearrange(preds, 'b s c -> s b c')
         # used for fetching embeddings
         if return_embeddings:
-            return pred, x
-        return pred
+            return (pred, preds), x
+        return (pred, preds)
 
 
 

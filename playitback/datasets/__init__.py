@@ -4,3 +4,4 @@
 from .build import DATASET_REGISTRY, build_dataset  # noqa
 from .epickitchens import Epickitchens
 from .vggsound import Vggsound
+from .audioset import Audioset

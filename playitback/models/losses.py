@@ -20,20 +20,29 @@ class Rank(nn.Module):
         super(Rank, self).__init__()
         self.reduction = reduction
 
-    def forward(self, x, y, margin=5e-2):
+    def forward(self, x, y, margin=5e-2, multilabel=False):
 
         # Assume
-        # x: [s x b x cls] => x[0] are the predictons of the decoder x[1:] are predictions based on slot attention
-        # cls_idx: [b]
+        # x: [p x b x cls] => x[0] are the predictons of the decoder x[1:] are predictions based on slot attention
+        # y: [b] (single class) [b,c] (multi-class)
 
         # get class probabilities
-        c_probs = rearrange(x, 'p b c -> b c p')
-        c_probs = torch.stack([c_probs[i,y[i]] for i in range(c_probs.shape[0])]) # B x S
+        c_probs = rearrange(x, 's b c -> b c s')
 
-        # calc difference across all S
-        dif = c_probs.unsqueeze(-1) - c_probs.unsqueeze(-2) + margin # B x S x S
-
-        mask = torch.tensor([[abs(i-j) for i in range(0,c_probs.shape[-1])] for j in range(0,c_probs.shape[-1])], device=c_probs.device)
+        if multilabel:
+            y = y.to(c_probs.device)
+            c_probs = c_probs * y.unsqueeze(-1) # mask-out classes from multi-hot
+            c_probs = rearrange(c_probs, 'b c s -> b s c')
+            # calc difference across all S
+            dif = abs(c_probs.unsqueeze(-2) - c_probs.unsqueeze(-3)) + margin # B x S x S x C
+            dif = reduce(dif, 'b s1 s2 c -> b s1 s2','sum')# B x S x S
+            dif = dif.squeeze(-1)
+            mask = torch.tensor([[abs(i-j) for i in range(0,c_probs.shape[-2])] for j in range(0,c_probs.shape[-2])], device=c_probs.device)
+        else:
+            c_probs = torch.stack([c_probs[i,y[i]] for i in range(c_probs.shape[0])]) # B x S
+            # calc difference across all S
+            dif = abs(c_probs.unsqueeze(-1) - c_probs.unsqueeze(-2)) + margin # B x S x S
+            mask = torch.tensor([[abs(i-j) for i in range(0,c_probs.shape[-1])] for j in range(0,c_probs.shape[-1])], device=c_probs.device)
 
         mask = 1./mask
         dif = dif * mask
