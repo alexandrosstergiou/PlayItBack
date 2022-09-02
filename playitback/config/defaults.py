@@ -134,7 +134,7 @@ _C.MODEL.MODEL_NAME = "PlayItBackX2"
 _C.MODEL.NUM_CLASSES = 400
 
 # Loss function.
-_C.MODEL.LOSS_FUNC = "cross_entropy"
+_C.MODEL.LOSS_FUNC = "soft_cross_entropy"
 
 # Dropout rate before final projection in the backbone.
 _C.MODEL.DROPOUT_RATE = 0.5
@@ -321,6 +321,9 @@ _C.DATA.MULTI_LABEL = False
 # Method to perform the ensemble, options include "sum" and "max".
 _C.DATA.ENSEMBLE_METHOD = "sum"
 
+# Using multi-label data
+_C.DATA.MULTI_LABEL = False
+
 # -----------------------------------------------------------------------------
 # Audio data options
 # -----------------------------------------------------------------------------
@@ -435,7 +438,7 @@ _C.OUTPUT_DIR = "./tmp"
 _C.RNG_SEED = 1
 
 # Log period in iters.
-_C.LOG_PERIOD = 1
+_C.LOG_PERIOD = 10
 
 # If True, log the model info.
 _C.LOG_MODEL_INFO = True
@@ -512,13 +515,11 @@ _C.AUDIOSET.AUDIO_DATA_DIR = ""
 
 _C.AUDIOSET.ANNOTATIONS_DIR = ""
 
-_C.AUDIOSET.SET = 'balanced'
+_C.AUDIOSET.TRAIN_LIST = "as1k_train_true_flac.pkl"
 
-_C.AUDIOSET.TRAIN_LIST = "train_{}.pkl".format(_C.AUDIOSET.SET)
+_C.AUDIOSET.VAL_LIST = "test_true_flac.pkl"
 
-_C.AUDIOSET.VAL_LIST = "test.pkl"
-
-_C.AUDIOSET.TEST_LIST = "test.pkl"
+_C.AUDIOSET.TEST_LIST = "test_true_flac.pkl"
 
 
 # -----------------------------------------------------------------------------

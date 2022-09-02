@@ -122,9 +122,13 @@ def train_epoch(
 
                 # Compute the loss.
                 loss = 0.
-                for i in range(playback_preds.shape[0]):
-                    loss_i = loss_fun(playback_preds[i],labels)
-                    loss = loss_i + loss
+                if not cfg.MODEL.IGNORE_DECODER:
+                    for i in range(playback_preds.shape[0]):
+                        loss_i = loss_fun(playback_preds[i],labels)
+                        loss = loss_i + loss
+                else:
+                    print(preds.shape,labels.shape)
+                    loss = loss_fun(preds,labels)
 
                 if cfg.MODEL.PLAYBACK > 0:
                     loss = loss_fun(preds,labels) + 0.1 * loss
@@ -224,7 +228,6 @@ def train_epoch(
             train_meter.update_stats(
                 (verb_top1_acc, noun_top1_acc, action_top1_acc),
                 (verb_top5_acc, noun_top5_acc, action_top5_acc),
-                None,
                 (loss_verb, loss_noun, loss),
                 lr,
                 inputs[0].size(0)
@@ -267,7 +270,7 @@ def train_epoch(
                     },
                 )
         else:
-            top1_err, top5_err, avg_pr = None, None, None
+            top1_err, top5_err = None, None
             if cfg.DATA.MULTI_LABEL:
                 # Gather all the predictions across all the devices.
                 if cfg.NUM_GPUS > 1:
@@ -279,6 +282,7 @@ def train_epoch(
                     avg_pr += skmetrics.average_precision_score(labels[b].cpu().detach().numpy(), preds[b].cpu().detach().numpy())
                 avg_pr /= labels.shape[0]
             else:
+                avg_pr = None
                 # Compute the errors.
                 num_topks_correct = metrics.topks_correct(preds, labels, (1, 5))
                 top1_err, top5_err = [
@@ -378,6 +382,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
     # Evaluation mode enabled. The running stats would not be updated.
     model.eval()
     val_meter.iter_tic()
+    data_size = len(val_loader)
 
     for cur_iter, (inputs, labels, _, _) in enumerate(val_loader):
         if cfg.NUM_GPUS:
@@ -389,6 +394,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         val_meter.data_toc()
 
         preds = model(inputs)
+        top1_err, top5_err = None, None
         pos_pred = preds[1]
         neg_pred = preds[2]
 
@@ -453,12 +459,10 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
                 action_top5_acc.item(),
             )
 
-            val_meter.iter_toc()
             # Update and log stats.
             val_meter.update_stats(
                 (verb_top1_acc, noun_top1_acc, action_top1_acc),
                 (verb_top5_acc, noun_top5_acc, action_top5_acc),
-                None,
                 inputs[0].size(0)
                 * max(
                     cfg.NUM_GPUS, 1
@@ -505,17 +509,38 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
             loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
 
             # Compute the loss.
-            loss = loss_fun(preds, labels)
+            loss = 0.
+            if not cfg.MODEL.IGNORE_DECODER:
+                for i in range(playback_preds.shape[0]):
+                    loss_i = loss_fun(playback_preds[i],labels)
+                    loss = loss_i + loss
+            else:
+                print(preds.shape,labels.shape)
+                loss = loss_fun(preds,labels)
 
-            pos_loss = loss_fun_pb(pos_pred, labels)
-            neg_loss = loss_fun_pb(neg_pred, labels)
+            if cfg.MODEL.PLAYBACK > 0:
+                loss = loss_fun(preds,labels) + 0.1 * loss
+            if not cfg.MODEL.IGNORE_DECODER:
+                if cfg.MODEL.LOSS_FUNC != 'cross_entropy':
+                    use_multilabel = True
+                else:
+                    use_multilabel = False
+                pos_loss = loss_fun_pb(pos_pred, labels, multilabel=use_multilabel)
+                neg_loss = loss_fun_pb(neg_pred, labels, multilabel=use_multilabel)
 
-            pb_loss = 0.1 * (pos_loss + neg_loss)
-            loss = loss + pb_loss
+                pb_loss = 0.1 * (pos_loss + neg_loss)
+                loss = loss + pb_loss
 
             if cfg.DATA.MULTI_LABEL:
+                # Gather all the predictions across all the devices.
                 if cfg.NUM_GPUS > 1:
-                    preds, labels = du.all_gather([preds, labels])
+                    [loss] = du.all_reduce([loss])
+                loss = loss.item()
+                # Average precision over multi-label
+                avg_pr = 0.
+                for b in range(labels.shape[0]):
+                    avg_pr += skmetrics.average_precision_score(labels[b].cpu().detach().numpy(), preds[b].cpu().detach().numpy())
+                avg_pr /= labels.shape[0]
 
             else:
                 # Compute the errors.
@@ -537,35 +562,53 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
                     top5_err.item(),
                 )
 
-                val_meter.iter_toc()
-                # Update and log stats.
-                val_meter.update_stats(
-                    top1_err,
-                    top5_err,
-                    avg_pr,
-                    inputs[0].size(0)
-                    * max(
-                        cfg.NUM_GPUS, 1
-                    ),  # If running  on CPU (cfg.NUM_GPUS == 1), use 1 to represent 1 CPU.
-                )
-                # write to tensorboard format if available.
-                if writer is not None and not wandb_log:
+            val_meter.iter_toc()
+            # Update and log stats.
+            val_meter.update_stats(
+                top1_err,
+                top5_err,
+                avg_pr,
+                inputs[0].size(0)
+                * max(
+                    cfg.NUM_GPUS, 1
+                ),  # If running  on CPU (cfg.NUM_GPUS == 1), use 1 to represent 1 CPU.
+            )
+            # write to tensorboard format if available.
+            if writer is not None and not wandb_log:
+                if cfg.DATA.MULTI_LABEL:
                     writer.add_scalars(
                         {
-                            "Val/loss": loss,
-                            "Val/Top1_err": top1_err,
-                            "Val/Top5_err": top5_err,
+                            "Train/loss": loss,
+                            "Train/mAP": avg_pr
                         },
-                        global_step=len(val_loader) * cur_epoch + cur_iter,
+                        global_step=data_size * cur_epoch + cur_iter,
+                    )
+                else:
+                    writer.add_scalars(
+                        {
+                            "Train/loss": loss,
+                            "Train/Top1_err": top1_err,
+                            "Train/Top5_err": top5_err,
+                        },
+                        global_step=data_size * cur_epoch + cur_iter,
                     )
 
-                if wandb_log:
+            if wandb_log:
+                if cfg.DATA.MULTI_LABEL:
                     wandb.log(
                         {
-                            "Val/loss": loss,
-                            "Val/Top1_err": top1_err,
-                            "Val/Top5_err": top5_err,
-                            "val_step": len(val_loader) * cur_epoch + cur_iter,
+                            "Train/loss": loss,
+                            "Train/mAP": avg_pr,
+                            "train_step": data_size * cur_epoch + cur_iter,
+                        },
+                    )
+                else:
+                    wandb.log(
+                        {
+                            "Train/loss": loss,
+                            "Train/Top1_err": top1_err,
+                            "Train/Top5_err": top5_err,
+                            "train_step": data_size * cur_epoch + cur_iter,
                         },
                     )
 
@@ -591,20 +634,32 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
 
     if writer is not None and not wandb_log:
         if "top1_acc" in top1_dict.keys():
-            writer.add_scalars(
-                {
-                    "Val/epoch/Top1_acc": top1_dict["top1_acc"],
-                    "Val/epoch/verb/Top1_acc": top1_dict["verb_top1_acc"],
-                    "Val/epoch/noun/Top1_acc": top1_dict["noun_top1_acc"],
-                },
-                global_step=cur_epoch,
-            )
+            if not cfg.DATA.MULTI_LABEL:
+                writer.add_scalars(
+                    {
+                        "Val/epoch/Top1_acc": top1_dict["top1_acc"],
+                        "Val/epoch/verb/Top1_acc": top1_dict["verb_top1_acc"],
+                        "Val/epoch/noun/Top1_acc": top1_dict["noun_top1_acc"],
+                    },
+                    global_step=cur_epoch,
+                )
+            else:
+                writer.add_scalars(
+                    {"Val/epoch/mAP": top1_dict["map"]},
+                    global_step=cur_epoch,
+                )
 
         else:
-            writer.add_scalars(
-                {"Val/epoch/Top1_err": top1_dict["top1_err"]},
-                global_step=cur_epoch,
-            )
+            if not cfg.DATA.MULTI_LABEL:
+                writer.add_scalars(
+                    {"Val/epoch/Top1_err": top1_dict["top1_err"]},
+                    global_step=cur_epoch,
+                )
+            else:
+                writer.add_scalars(
+                    {"Val/epoch/mAP": top1_dict["map"]},
+                    global_step=cur_epoch,
+                )
 
     if wandb_log:
         if "top1_acc" in top1_dict.keys():
@@ -618,11 +673,18 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
             )
 
         else:
-            wandb.log(
-                {"Val/epoch/Top1_err": top1_dict["top1_err"], "epoch": cur_epoch}
-            )
-
-    top1 = top1_dict["top1_acc"] if "top1_acc" in top1_dict.keys() else top1_dict["top1_err"]
+            if not cfg.DATA.MULTI_LABEL:
+                wandb.log(
+                    {"Val/epoch/Top1_err": top1_dict["top1_err"], "epoch": cur_epoch}
+                )
+            else:
+                wandb.log(
+                    {"Val/epoch/mAP": top1_dict["map"], "epoch": cur_epoch}
+                )
+    if not cfg.DATA.MULTI_LABEL:
+        top1 = top1_dict["top1_acc"] if "top1_acc" in top1_dict.keys() else top1_dict["top1_err"]
+    else:
+        top1 = top1_dict["map"]
     val_meter.reset()
     return is_best_epoch, top1
 
@@ -742,9 +804,11 @@ def train(cfg):
         loader.shuffle_dataset(train_loader, cur_epoch)
 
         # Train for one epoch.
+        '''
         train_epoch(
             train_loader, model, optimizer, train_meter, cur_epoch, cfg, writer, wandb_log, scaler=scaler if cfg.TRAIN.MIXED_PRECISION else None
         )
+        '''
 
         is_checkp_epoch = cu.is_checkpoint_epoch(
             cfg,

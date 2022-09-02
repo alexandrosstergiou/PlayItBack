@@ -407,7 +407,8 @@ class TrainMeter(object):
             stats["top5_err"] = top5_err
             stats["loss"] = avg_loss
         else:
-            stats["map"] = self.tot_map / self.max_iter
+            avg_loss = self.loss_total / self.num_samples
+            stats["map"] = self.tot_map / self.epoch_iters
             stats["loss"] = avg_loss
         logging.log_json_stats(stats)
 
@@ -566,13 +567,17 @@ class ValMeter(object):
             stats["min_top5_err"] = self.min_top5_err
         else:
             stats["map"] = self.tot_map / self.max_iter
-            is_best_epoch = stats["map"]  < self.max_map
-            self.max_map = min(self.max_map, stats["map"])
+            is_best_epoch = stats["map"]  > self.max_map
+            if is_best_epoch:
+                self.max_map = stats["map"]
             stats["max_map"] = self.max_map
 
         logging.log_json_stats(stats)
 
-        return is_best_epoch, {"top1_err": top1_err}
+        if not self._cfg.DATA.MULTI_LABEL:
+            return is_best_epoch, {"top1_err": top1_err}
+        else:
+            return is_best_epoch, {"map": stats["map"]}
 
 
 class EPICTrainMeter(object):

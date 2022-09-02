@@ -38,7 +38,7 @@ SOLVER:
 MIXUP:
   ENABLE: True
 MODEL:
-  MODEL_NAME: "PlayItBackX2"
+  MODEL_NAME: "PlayItBackX1"
   NUM_CLASSES: 309
   LOSS_FUNC: "cross_entropy"
   PLAYBACK: 1

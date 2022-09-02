@@ -38,7 +38,7 @@ def get_start_end_idx(audio_size, clip_size, clip_idx, num_clips):
 def pack_audio(cfg, audio_record, temporal_sample_index):
     assert not (cfg.MODEL.PLAYBACK > 0 and cfg.MODEL.IGNORE_DECODER), 'Expected the decoder to be used for playback looping.'
     assert not (cfg.MODEL.PLAYBACK == 0 and not cfg.MODEL.IGNORE_DECODER), 'Cannot use decoder if no playback looping is used.'
-    path_audio = os.path.join(cfg.AUDIOSET.AUDIO_DATA_DIR, audio_record['video'][:-4] + '.wav')
+    path_audio = os.path.join(cfg.AUDIOSET.AUDIO_DATA_DIR, audio_record['video'][:-4] + '.flac')
     import librosa
     samples, sr = librosa.core.load(path_audio, sr=None, mono=True)
     assert sr == cfg.AUDIO_DATA.SAMPLING_RATE, \
@@ -108,5 +108,4 @@ def _extract_sound_feature(cfg, samples, start_idx, end_idx, iter=1):
                                     window_size=cfg.AUDIO_DATA.WINDOW_LENGTH,
                                     step_size=cfg.AUDIO_DATA.HOP_LENGTH
                                     )
-    spectrogram = torch.tensor(spectrogram).unsqueeze(0)
-    return spectrogram
+    return torch.tensor(spectrogram).unsqueeze(0)

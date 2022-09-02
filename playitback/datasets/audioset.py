@@ -2,6 +2,7 @@ import os, sys
 import pandas as pd
 import pickle
 import torch
+import torch.nn.functional as F
 import torch.utils.data
 import os
 import random
@@ -69,14 +70,6 @@ class Audioset(torch.utils.data.Dataset):
             )
         )
 
-    def get_index(self,index):
-        record_dir = os.path.join(self.cfg.AUDIOSET.AUDIO_DATA_DIR,self._audio_records[index]['video'][:-4]+'.wav')
-        while not os.path.isfile(record_dir):
-            i = max([100,index])
-            index = random.sample(range(i),1)[0]
-            record_dir = os.path.join(self.cfg.AUDIOSET.AUDIO_DATA_DIR,self._audio_records[index]['video'][:-4]+'.wav')
-        return index
-
     def __getitem__(self, index):
         """
         Given the audio index, return the spectrogram, label, and audio
@@ -93,27 +86,18 @@ class Audioset(torch.utils.data.Dataset):
         import warnings
         warnings.filterwarnings('ignore')
 
+        if self.mode in ["train", "val"]:
+            # -1 indicates random sampling.
+            temporal_sample_index = -1
+        elif self.mode in ["test"]:
+            temporal_sample_index = self._temporal_idx[index]
+        else:
+            raise NotImplementedError(
+                "Does not support {} mode".format(self.mode)
+            )
+        spectrograms = pack_audio(self.cfg, self._audio_records[index], temporal_sample_index)
 
-        # Check if audio record exists and if not, re-sample
-        loaded = False
-        while not loaded:
-            try:
-                index = self.get_index(index)
-                if self.mode in ["train", "val"]:
-                    # -1 indicates random sampling.
-                    temporal_sample_index = -1
-                elif self.mode in ["test"]:
-                    temporal_sample_index = self._temporal_idx[index]
-                else:
-                    raise NotImplementedError(
-                        "Does not support {} mode".format(self.mode)
-                    )
-                spectrograms = pack_audio(self.cfg, self._audio_records[index], temporal_sample_index)
-                loaded=True
-                print('loaded')
-            except Exception:
-                continue
-
+        sps = []
         for i,spectrogram in enumerate(spectrograms):
             # Normalization.
             spectrogram = spectrogram.float()
@@ -125,11 +109,14 @@ class Audioset(torch.utils.data.Dataset):
                 spectrogram = combined_transforms(spectrogram)
                 # C F T -> C T F
                 spectrogram = spectrogram.permute(0, 2, 1)
-            spectrograms[i] = utils.pack_pathway_output(self.cfg, spectrogram)[0]
+            if spectrogram.shape[-2] != self.cfg.DATA_LOADER.TRAIN_CROP_SIZE[-2]:
+                spectrogram = F.interpolate(spectrogram.unsqueeze(0),size=self.cfg.DATA_LOADER.TRAIN_CROP_SIZE).squeeze(0)
+            sps.append(utils.pack_pathway_output(self.cfg, spectrogram)[0])
         label = self._audio_records[index]['class_ids']
         if not isinstance(label,list):
             label = [label]
 
+        spectrograms = sps
         # pad spectrogram along temporal dimension
         if len(spectrograms) > 0:
             for i,s in enumerate(spectrograms):
