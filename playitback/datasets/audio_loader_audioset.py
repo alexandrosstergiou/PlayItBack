@@ -2,6 +2,7 @@ import random
 import numpy as np
 import torch
 import os
+import cv2
 
 
 def get_start_end_idx(audio_size, clip_size, clip_idx, num_clips):
@@ -53,8 +54,6 @@ def pack_audio(cfg, audio_record, temporal_sample_index):
     num_frames = cfg.AUDIO_DATA.NUM_FRAMES
     hop_length = cfg.AUDIO_DATA.HOP_LENGTH
     for i in range(0, max_iter):
-        cfg.MODEL.PLAYBACK = 0
-        cfg.MODEL.IGNORE_DECODER = True
         cfg.AUDIO_DATA.NUM_FRAMES = num_frames/(i+1)
         cfg.AUDIO_DATA.HOP_LENGTH = 0.0249951175 * cfg.AUDIO_DATA.NUM_FRAMES
         start_idx, end_idx = get_start_end_idx(
@@ -67,6 +66,7 @@ def pack_audio(cfg, audio_record, temporal_sample_index):
         cfg.AUDIO_DATA.NUM_FRAMES = num_frames
         cfg.AUDIO_DATA.HOP_LENGTH = hop_length
         spectrograms.append(spectrogram)
+
     return spectrograms
 
 
@@ -101,6 +101,10 @@ def _extract_sound_feature(cfg, samples, start_idx, end_idx, iter=1):
                                     step_size=cfg.AUDIO_DATA.HOP_LENGTH
                                     )
         num_timesteps_to_pad = cfg.DATA_LOADER.TEST_CROP_SIZE[0]*iter - spectrogram.shape[0]
+        # Interpolate first if num_timesteps_to_pad < 0
+        if num_timesteps_to_pad < 0:
+            spectrogram = cv2.resize(np.expand_dims(spectrogram,-1), (cfg.DATA_LOADER.TEST_CROP_SIZE[0]*iter,spectrogram.shape[1]), cv2.INTER_AREA)
+            num_timesteps_to_pad = 0
         spectrogram = np.pad(spectrogram, ((0, int(num_timesteps_to_pad)), (0, 0)), 'edge')
     else:
         samples = samples[start_idx:end_idx]

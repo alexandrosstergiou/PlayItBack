@@ -804,11 +804,9 @@ def train(cfg):
         loader.shuffle_dataset(train_loader, cur_epoch)
 
         # Train for one epoch.
-        '''
         train_epoch(
             train_loader, model, optimizer, train_meter, cur_epoch, cfg, writer, wandb_log, scaler=scaler if cfg.TRAIN.MIXED_PRECISION else None
         )
-        '''
 
         is_checkp_epoch = cu.is_checkpoint_epoch(
             cfg,
