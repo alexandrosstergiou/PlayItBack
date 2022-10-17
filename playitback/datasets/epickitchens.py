@@ -102,19 +102,34 @@ class Epickitchens(torch.utils.data.Dataset):
                 "Does not support {} mode".format(self.mode)
             )
 
-        spectrogram = pack_audio(self.cfg, self.audio_dataset, self._audio_records[index], temporal_sample_index)
-        # Normalization.
-        spectrogram = spectrogram.float()
-        if self.mode in ["train", "train+val"]:
-            # Data augmentation.
-            # C T F -> C F T
-            spectrogram = spectrogram.permute(0, 2, 1)
-            # SpecAugment
-            spectrogram = combined_transforms(spectrogram)
-            # C F T -> C T F
-            spectrogram = spectrogram.permute(0, 2, 1)
+        spectrograms = pack_audio(self.cfg, self.audio_dataset, self._audio_records[index], temporal_sample_index)
+        sps = []
+        for i,spectrogram in enumerate(spectrograms):
+            # Normalization.
+            spectrogram = spectrogram.float()
+            if self.mode in ["train"]:
+                # Data augmentation.
+                # C T F -> C F T
+                spectrogram = spectrogram.permute(0, 2, 1)
+                # SpecAugment
+                spectrogram = combined_transforms(spectrogram)
+                # C F T -> C T F
+                spectrogram = spectrogram.permute(0, 2, 1)
+            if spectrogram.shape[-2] != self.cfg.DATA_LOADER.TRAIN_CROP_SIZE[-2]:
+                spectrogram = F.interpolate(spectrogram.unsqueeze(0),size=self.cfg.DATA_LOADER.TRAIN_CROP_SIZE).squeeze(0)
+            sps.append(utils.pack_pathway_output(self.cfg, spectrogram)[0])
         label = self._audio_records[index].label
-        spectrogram = utils.pack_pathway_output(self.cfg, spectrogram)
+        
+        spectrograms = sps
+        # pad spectrogram along temporal dimension
+        if len(spectrograms) > 0:
+            for i,s in enumerate(spectrograms):
+                pad_2d = (0,0,spectrograms[-1].shape[-2] - s[-1].shape[-2], 0)
+                spectrograms[i] = torch.nn.functional.pad(s,pad_2d,'constant',0)
+
+            spectrograms = torch.stack(spectrograms).permute(1,0,2,3).squeeze(0)
+            
+        
         metadata = self._audio_records[index].metadata
         return spectrogram, label, index, metadata
 
