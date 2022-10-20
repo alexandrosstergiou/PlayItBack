@@ -10,7 +10,6 @@
 
 
 ## Abstract
---------------------------
 A key function of auditory cognition is the association of characteristic sounds with their corresponding semantics over time.
 Humans attempting to discriminate between fine-grained audio categories, often replay the same discriminative sounds to increase their prediction confidence.
 We propose an end-to-end attention-based architecture that through selective repetition attends over the most discriminative sounds across the audio sequence. Our model initially uses the full audio sequence and iteratively refines the temporal segments replayed based on slot attention. At each playback, the selected segments are replayed using a smaller hop length which represents higher resolution features within these segments. 
@@ -22,7 +21,6 @@ We show that our method can consistently achieve state-of-the-art performance ac
 
 
 ## Dependencies
---------------------------
 Ensure that the following packages are installed in your machine:
 
   * [PyTorch](https://pytorch.org) 
@@ -42,7 +40,7 @@ pip install torch torchvision torchaudio librosa h5py wandb fvcore simplejson ps
 ! Note that different from [PySlowFast](https://github.com/facebookresearch/SlowFast), __there is no need__ to add the repo to your Add this repository to `$PYTHONPATH`.
 
 ## Datasets
---------------------------
+
 ### Downloading
 
 - __AudioSet__: The following [fork](https://github.com/alexandrosstergiou/audioset-processing) of [audioset-processing](https://github.com/aoifemcdonagh/audioset-processing) was used to download the full dataset while also using multiple processes to download individual video files. The original repository only uses a main process which makes dataset crawling very slow.
@@ -65,7 +63,6 @@ Audio files for the datasets are expected in the following formats:
 
 
 ## Usage
---------------------------
 
 ### Training/Evaluating
 
@@ -117,12 +114,13 @@ The following (usefully notable) arguments can also be used regardless of the da
 
 
 ## Acknowledgement
---------------------------
+
 This repository is an adjustment of [auditory-slow-fast](https://github.com/ekazakos/auditory-slow-fast) and [PySlowFast](https://github.com/facebookresearch/SlowFast) that also includes batch-wise playbacks.
 
 
 ## Citation
---------------------------
+
+
 ```
 @article{stergiou2022playitback,
 title={Play It Back: Iterative Attention for Audio Recognition},
