@@ -133,6 +133,12 @@ _C.MODEL.MODEL_NAME = "PlayItBackX2"
 # The number of classes to predict for the model.
 _C.MODEL.NUM_CLASSES = 400
 
+# If multi-task is used (enables overwritting `NUM_CLASSES` when creating the model).
+_C.MODEL.MULTITASK = False
+
+# Multi-task number of classes per task
+_C.MODEL.MULTITASK_CLASSES = [97,300]
+
 # Loss function.
 _C.MODEL.LOSS_FUNC = "soft_cross_entropy"
 
@@ -515,11 +521,11 @@ _C.AUDIOSET.AUDIO_DATA_DIR = ""
 
 _C.AUDIOSET.ANNOTATIONS_DIR = ""
 
-_C.AUDIOSET.TRAIN_LIST = "as1k_train_true_flac.pkl"
+_C.AUDIOSET.TRAIN_LIST = "as500k_train_flac.pkl"
 
-_C.AUDIOSET.VAL_LIST = "test_true_flac.pkl"
+_C.AUDIOSET.VAL_LIST = "test_flac.pkl"
 
-_C.AUDIOSET.TEST_LIST = "test_true_flac.pkl"
+_C.AUDIOSET.TEST_LIST = "test_flac.pkl"
 
 
 # -----------------------------------------------------------------------------

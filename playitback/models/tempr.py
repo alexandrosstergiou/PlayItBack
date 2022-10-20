@@ -263,8 +263,13 @@ class TemPr(nn.Module):
         else:
             self.fusion = nn.Identity()
 
-
-        self.fc = nn.Linear(cfg.DECODER.LATENT_DIM, self.num_classes) if cfg.DECODER.FINAL_CLASSIFIER_HEAD else nn.Identity()
+        # for classes with dual outputs
+        self.multitask = cfg.MODEL.MULTITASK 
+        if not self.multitask:
+            self.fc = nn.Linear(cfg.DECODER.LATENT_DIM, self.num_classes) if cfg.DECODER.FINAL_CLASSIFIER_HEAD else nn.Identity()
+        else:
+            self.num_classes = cfg.MODEL.MULTITASK_CLASSES
+            self.fc = torch.nn.ModuleList([nn.Linear(cfg.DECODER.LATENT_DIM, cl) if cfg.DECODER.FINAL_CLASSIFIER_HEAD else nn.Identity() for cl in self.num_classes]) 
 
 
     def forward(self, data, mask = None, return_embeddings = False):
@@ -308,15 +313,28 @@ class TemPr(nn.Module):
 
         # to logits
         x = self.reduce(torch.stack(x_list,dim=0)) # B x S x C
-        preds = self.fc(x)
+        if not self.multitask:
+            preds = self.fc(x)
+        else:
+            preds = [fc(x) for fc in self.fc ]
         if self.f_loc=='features':
             x = self.fusion(x)
             # class predictions
-            pred = self.fc(x)
+            if not self.multitask:
+                pred = self.fc(x)
+            else:
+                pred = [fc(x) for fc in self.fc]
         else:
             # class predictions
-            pred = self.fusion(preds)
-        preds = rearrange(preds, 'b s c -> s b c')
+            if not self.multitask:
+                pred = self.fusion(preds)
+            else:
+                pred = [self.fusion(p) for p in preds ]
+        if not self.multitask:
+            preds = rearrange(preds, 'b s c -> s b c')
+        else:
+            tmp = [rearrange(p, 'b s c -> s b c') for p in preds]
+            preds = tmp
         # used for fetching embeddings
         if return_embeddings:
             return (pred, preds), x

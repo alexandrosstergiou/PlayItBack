@@ -15,7 +15,19 @@ from einops.layers.torch import Rearrange, Reduce
 
 
 class SlotAttention(torch.nn.Module):
+    """
+    Iterative Slot Attention.
+    """
     def __init__(self, num_slots, dim, iters = 3, eps = 1e-8, hidden_dim = 128):
+        """
+        Perform linear projection and activation as head for tranformers.
+        Args:
+            num_slots (int): the number of slots to be created.
+            dim_in (int): the channel dimension of the input to the head.
+            iters (int): the number of iterations for slots to be trained with.
+            eps (float): used for numeric stability..
+            hidden_dim (int): the hidden state dimension.
+        """
         super().__init__()
         self.num_slots = num_slots
         self.iters = iters
@@ -41,7 +53,7 @@ class SlotAttention(torch.nn.Module):
         self.norm_pre_ff = torch.nn.LayerNorm(dim)
 
     def forward(self, inputs, num_slots = None):
-        b, n, d = inputs.shape
+        b, _, d = inputs.shape
         n_s = num_slots if num_slots is not None else self.num_slots
 
         mu = self.slots_mu.expand(b, n_s, -1)
@@ -101,9 +113,13 @@ class SoftPositionEmbed(torch.nn.Module):
         return inputs + grid
 
 
-
-
 def approx_divisor(divisor,target):
+    """
+    Approximate the closest integer divisor to a given `divisor` argument based on the given `target` dividend.
+    Args:
+        divisor (int): the divisor.
+        target (model): the adividend.
+    """
     prev_div = 1
     for x in range(1,target+1):
         # store integer divisors
@@ -150,10 +166,13 @@ class Mlp(torch.nn.Module):
         return x
 
 class PlayItBack(torch.nn.Module):
-
+    """
+    Play It Back: Iterative Attention for Audio Recognition
+    Alexandros Stergiou and Dima Damen
+    """
     def __init__(self, cfg):
         super().__init__()
-        name = cfg.MODEL.MODEL_NAME
+        self.name = cfg.MODEL.MODEL_NAME
         self.cfg = cfg
         self.encoder = MViT(cfg=cfg)
         if not cfg.MODEL.IGNORE_DECODER:
@@ -162,17 +181,16 @@ class PlayItBack(torch.nn.Module):
         res = 400
         self.saliency_slots = torch.nn.ModuleList([])
         self.norm = torch.nn.LayerNorm(self.cfg.DECODER.INPUT_CHANNELS)
+        
+        self.multitask = cfg.MODEL.MULTITASK 
 
-        for i in range(cfg.DECODER.DEPTH):
+        for _ in range(cfg.DECODER.DEPTH):
             self.saliency_slots.append(
                 torch.nn.Sequential(
                 SoftPositionEmbed(hidden_size=self.cfg.DECODER.INPUT_CHANNELS, resolution=res),
                 Rearrange('b t c -> b c t'),
                 torch.nn.Upsample(size=res),
-                SlotAttention(num_slots=2,dim=res)#,
-                #Mlp(in_features=self.cfg.DECODER.INPUT_CHANNELS,
-                #hidden_features=int(self.cfg.DECODER.INPUT_CHANNELS * 2),
-                #out_features=self.cfg.DECODER.INPUT_CHANNELS)
+                SlotAttention(num_slots=2,dim=res)
             ))
 
     def scaled_region_estimator(self,id,length=400,ratio=2):
@@ -192,6 +210,13 @@ class PlayItBack(torch.nn.Module):
 
 
     def reginal_reg(self,act,idx,size):
+        """
+        Min-Max regularisation over a region of an input tensor.
+        Args:
+            act (torch.tensor): input tensor to be regularised.
+            idx (int): the location of the maximum activation.
+            size (int): the segment of the tensor to be regularised.
+        """
         tmp = torch.arange(start=0, end=size)
         tmp = tmp.cuda(act.get_device()) if act.is_cuda else tmp
         tmp = abs(tmp-idx)*-1
@@ -332,7 +357,14 @@ class PlayItBack(torch.nn.Module):
         t_dim = x[0].shape[-2]
 
         pos_p = []
+        
+        pos_p_verb = []
+        pos_p_noun = []
+        
         neg_p = []
+        
+        neg_p_verb = []
+        neg_p_noun = []
 
         # Iterate over playbacks: x [playbacks x b x c=1 x t x f]
         for i,x_i in enumerate(x):
@@ -448,15 +480,36 @@ class PlayItBack(torch.nn.Module):
 
             #tmp_f_pos = rearrange(tmp_f_pos, 'b d h -> b h d')
             #tmp_f_neg = rearrange(tmp_f_neg, 'b d h -> b h d')
-
+                
+                
             with torch.no_grad():
-                pred_pos = self.encoder.head(tmp_f_pos.mean(1))
-                pred_neg = self.encoder.head(tmp_f_neg.mean(1))
-            pos_p.append(pred_pos)
-            neg_p.append(pred_neg)
+                if not self.multitask:
+                    pred_pos = self.encoder.head(tmp_f_pos.mean(1))
+                    pred_neg = self.encoder.head(tmp_f_neg.mean(1))
+                    pos_p.append(pred_pos)
+                    neg_p.append(pred_neg)
+                else:
+                    
+                    out_p = [head(tmp_f_pos.mean(1)) for head in self.encoder.head]
+                    pred_pos_verb = out_p[0]
+                    pred_pos_noun = out_p[1]
+                    pos_p_verb.append(pred_pos_verb)
+                    pos_p_noun.append(pred_pos_noun)
+                    
+                    out_n = [head(tmp_f_neg.mean(1)) for head in self.encoder.head]
+                    pred_neg_verb = out_n[0]
+                    pred_neg_noun = out_n[1]
+                    neg_p_verb.append(pred_neg_verb)
+                    neg_p_noun.append(pred_neg_noun)
+        
+        if self.multitask:             
+            pos_p = [pos_p_verb,pos_p_noun]
+            neg_p = [neg_p_verb,neg_p_noun]
+                    
+                    
 
         # get decoder preds
-        de_preds = self.decoder(en_feats)
+        de_preds = self.decoder(en_feats, return_embeddings = False)
 
         return [de_preds, pos_p, neg_p]
 

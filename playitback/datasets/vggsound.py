@@ -1,6 +1,5 @@
-import os, sys
+import os
 import pandas as pd
-import pickle
 import torch
 import torch.utils.data
 
@@ -112,6 +111,7 @@ class Vggsound(torch.utils.data.Dataset):
                 spectrograms[i] = torch.nn.functional.pad(s,pad_2d,'constant',0)
 
             spectrograms = torch.stack(spectrograms).permute(1,0,2,3).squeeze(0)
+        
         return spectrograms, label, index, {}
 
     def __len__(self):

@@ -675,13 +675,24 @@ class MViT(nn.Module):
             embed_dim = dim_out
 
         self.norm = norm_layer(embed_dim)
-
-        self.head = TransformerBasicHead(
-            embed_dim,
-            num_classes,
-            dropout_rate=cfg.MODEL.DROPOUT_RATE,
-            act_func=cfg.MODEL.HEAD_ACT,
-        )
+        
+        self.multitask = cfg.MODEL.MULTITASK 
+        if not self.multitask:
+            self.head = TransformerBasicHead(
+                embed_dim,
+                num_classes,
+                dropout_rate=cfg.MODEL.DROPOUT_RATE,
+                act_func=cfg.MODEL.HEAD_ACT,
+            )
+        else:
+            self.num_classes = cfg.MODEL.MULTITASK_CLASSES
+            self.head = torch.nn.ModuleList([ TransformerBasicHead(
+                embed_dim,
+                cl,
+                dropout_rate=cfg.MODEL.DROPOUT_RATE,
+                act_func=cfg.MODEL.HEAD_ACT,
+                ) for cl in self.num_classes]) 
+        
         if self.use_abs_pos:
             trunc_normal_(self.pos_embed, std=0.02)
         if self.cls_embed_on:
@@ -735,11 +746,18 @@ class MViT(nn.Module):
             x = x[:, 0]
         else:
             x = x.mean(1)
+        
+        if not self.multitask:
+            out = self.head(x)
+        else:
+            out = [h(x) for h in self.head]
+                
+         
 
         if self.return_emb:
-            return feats, self.head(x)
+            return feats, out
         else:
-            return self.head(x)
+            return out
 
 def _prepare_mvit_configs(cfg):
     """
@@ -828,10 +846,10 @@ if __name__ == "__main__":
     _C.MODEL.DROPOUT_RATE = 0.
     _C.MODEL.HEAD_ACT = "softmax"
 
-    tmp = torch.rand(32,1,400,128).cuda()
+    tmp = torch.rand(1,1,1600,128).cuda()
     model = MViT(_C).cuda()
 
-    summary(model, (32,1,400,128))
+    summary(model, (1,1,1600,128))
     print('--- TEST 1 passed --- \n')
 
     out = model(tmp)

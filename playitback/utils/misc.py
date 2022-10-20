@@ -129,6 +129,7 @@ def get_model_stats(model, cfg, mode):
     model_mode = model.training
     model.eval()
     inputs = _get_model_analysis_input(cfg)
+    print(inputs.shape)
     #for inp in inputs:
     #    print('misc:',inp.shape)
     count_dict, *_ = model_stats_fun(model, inputs)

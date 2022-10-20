@@ -85,6 +85,7 @@ def train_epoch(
         optim.set_lr(optimizer, lr)
 
         train_meter.data_toc()
+        # Create MixUp labels
         if cfg.MIXUP.ENABLE:
             samples, labels = mixup_fn(inputs[0], labels)
             inputs[0] = samples
@@ -94,23 +95,68 @@ def train_epoch(
             optimizer.zero_grad()
             preds = model(inputs)
 
+            # verbs/nouns -- currently supports only dual classifier heads       
             if not cfg.MODEL.IGNORE_DECODER:
-                pos_pred = preds[1]
-                neg_pred = preds[2]
+                if cfg.MODEL.MULTITASK :
+                    pos_pred_verb = preds[1][0]
+                    pos_pred_noun = preds[1][1]
+                    
+                    neg_pred_verb = preds[2][0]
+                    neg_pred_noun = preds[2][1]
+                    
+                else:
+                    pos_pred = preds[1]
+                    neg_pred = preds[2]
 
                 playback_preds = preds[0][1]
                 preds = preds[0][0]
-
+            
             if isinstance(labels, (dict,)):
                 # Explicitly declare reduction to mean.
                 loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
 
                 # Compute the (per-playback) loss.
+                
+                if not cfg.MODEL.IGNORE_DECODER:
+                    loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
 
+                # Compute the loss.
+                loss = 0.
+                loss_verb = 0.
+                loss_noun = 0.
+                
+                
+                if not cfg.MODEL.IGNORE_DECODER:
+                    for i in range(playback_preds[0].shape[0]):
+                        loss_i_verb = loss_fun(playback_preds[0][i],labels['verb'])
+                        loss_i_noun = loss_fun(playback_preds[1][i],labels['noun'])
+                        loss = 0.5 * (loss_i_verb + loss_i_noun) + loss
+                else:
+                    loss = loss_fun(preds,labels)
 
-                loss_verb = torch,mean([loss_fun(playback_preds[0][i], labels['verb']) for i in range(playback_preds[0].shape[0])])
-                loss_noun = torch,mean([loss_fun(preds[1][i], labels['noun']) for i in range(playback_preds[0].shape[0])])
-                loss = 0.5 * (loss_verb + loss_noun)
+                if cfg.MODEL.PLAYBACK > 0:
+                    loss_verb = loss_fun(preds[0],labels['verb']) + 0.1 * loss_verb
+                    loss_noun = loss_fun(preds[1],labels['noun']) + 0.1 * loss_noun
+                    loss = 0.5 * (loss_verb + loss_noun)
+                
+                if not cfg.MODEL.IGNORE_DECODER:
+                    if cfg.MODEL.LOSS_FUNC != 'cross_entropy':
+                        use_multilabel = True
+                    else:
+                        use_multilabel = False
+                    
+                    # Ranking loss based on positive/negative slots               
+                    pos_loss_verb = loss_fun_pb(pos_pred_verb, cached_labels['verb'], multilabel=use_multilabel)
+                    pos_loss_noun = loss_fun_pb(pos_pred_noun, cached_labels['noun'], multilabel=use_multilabel)
+                    pos_loss = 0.5 * (pos_loss_verb + pos_loss_noun)
+                    
+                    neg_loss_verb = loss_fun_pb(neg_pred_verb, cached_labels['verb'], multilabel=use_multilabel)
+                    neg_loss_noun = loss_fun_pb(neg_pred_noun, cached_labels['noun'], multilabel=use_multilabel)
+                    neg_loss = 0.5 * (neg_loss_verb + neg_loss_noun)
+                    
+
+                    pb_loss = 0.1 * (pos_loss + neg_loss)
+                    loss = loss + pb_loss
 
                 # check Nan Loss.
                 misc.check_nan_losses(loss)
@@ -394,9 +440,16 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         val_meter.data_toc()
 
         preds = model(inputs)
-        top1_err, top5_err = None, None
-        pos_pred = preds[1]
-        neg_pred = preds[2]
+        if cfg.MODEL.MULTITASK :
+            pos_pred_verb = preds[1][0]
+            pos_pred_noun = preds[1][1]
+                    
+            neg_pred_verb = preds[2][0]
+            neg_pred_noun = preds[2][1]
+                    
+        else:
+            pos_pred = preds[1]
+            neg_pred = preds[2]
 
         playback_preds = preds[0][1]
         preds = preds[0][0]
@@ -404,11 +457,33 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
         if isinstance(labels, (dict,)):
             # Explicitly declare reduction to mean.
             loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
+            
+            # Compute the (per-playback) loss.
+                
+            if not cfg.MODEL.IGNORE_DECODER:
+                loss_fun_pb = losses.get_loss_func('rank')(reduction="mean")
+
+            loss = 0.
+            loss_verb = 0.
+            loss_noun = 0.
 
             # Compute the loss.
-            loss_verb = loss_fun(preds[0], labels['verb'])
-            loss_noun = loss_fun(preds[1], labels['noun'])
-            loss = 0.5 * (loss_verb + loss_noun)
+            if cfg.MODEL.PLAYBACK > 0:
+                    loss_verb = loss_fun(preds[0],labels['verb']) + 0.1 * loss_verb
+                    loss_noun = loss_fun(preds[1],labels['noun']) + 0.1 * loss_noun
+                    loss = 0.5 * (loss_verb + loss_noun)
+                    
+            pos_loss_verb = loss_fun_pb(pos_pred_verb, labels['verb'], multilabel=False)
+            pos_loss_noun = loss_fun_pb(pos_pred_noun, labels['noun'], multilabel=False)
+            pos_loss = 0.5 * (pos_loss_verb + pos_loss_noun)
+                    
+            neg_loss_verb = loss_fun_pb(neg_pred_verb, labels['verb'], multilabel=False)
+            neg_loss_noun = loss_fun_pb(neg_pred_noun, labels['noun'], multilabel=False)
+            neg_loss = 0.5 * (neg_loss_verb + neg_loss_noun)
+                    
+
+            pb_loss = 0.1 * (pos_loss + neg_loss)
+            loss = loss + pb_loss
 
             # Compute the verb accuracies.
             verb_top1_acc, verb_top5_acc = metrics.topk_accuracies(preds[0], labels['verb'], (1, 5))
@@ -484,7 +559,6 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
                     },
                     global_step=len(val_loader) * cur_epoch + cur_iter,
                 )
-
             if wandb_log:
                 wandb.log(
                     {
@@ -515,7 +589,6 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
                     loss_i = loss_fun(playback_preds[i],labels)
                     loss = loss_i + loss
             else:
-                print(preds.shape,labels.shape)
                 loss = loss_fun(preds,labels)
 
             if cfg.MODEL.PLAYBACK > 0:
@@ -543,6 +616,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, writer=None, wandb_
                 avg_pr /= labels.shape[0]
 
             else:
+                avg_pr = None
                 # Compute the errors.
                 num_topks_correct = metrics.topks_correct(preds, labels, (1, 5))
 

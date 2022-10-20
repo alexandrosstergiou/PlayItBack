@@ -61,8 +61,16 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
 
         # Perform the forward pass.
         preds = model(inputs)
-        pos_pred = preds[1]
-        neg_pred = preds[2]
+        if cfg.MODEL.MULTITASK :
+            pos_pred_verb = preds[1][0]
+            pos_pred_noun = preds[1][1]
+                    
+            neg_pred_verb = preds[2][0]
+            neg_pred_noun = preds[2][1]
+                    
+        else:
+            pos_pred = preds[1]
+            neg_pred = preds[2]
         preds = preds[0][0]
 
         if isinstance(labels, (dict,)):

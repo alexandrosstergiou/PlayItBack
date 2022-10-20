@@ -38,7 +38,7 @@ def get_start_end_idx(audio_size, clip_size, clip_idx, num_clips):
 def pack_audio(cfg, audio_record, temporal_sample_index):
     assert not (cfg.MODEL.PLAYBACK > 0 and cfg.MODEL.IGNORE_DECODER), 'Expected the decoder to be used for playback looping.'
     assert not (cfg.MODEL.PLAYBACK == 0 and not cfg.MODEL.IGNORE_DECODER), 'Cannot use decoder if no playback looping is used.'
-    path_audio = os.path.join(cfg.VGGSOUND.AUDIO_DATA_DIR, audio_record['video'][:-4] + '.wav')
+    path_audio = os.path.join(cfg.VGGSOUND.AUDIO_DATA_DIR,audio_record['class'], audio_record['video'][:-4] + '.wav')
     import librosa
     samples, sr = librosa.core.load(path_audio, sr=None, mono=False)
     assert sr == cfg.AUDIO_DATA.SAMPLING_RATE, \
