@@ -2,7 +2,7 @@
 
 - <a href="https://alexandrosstergiou.github.io/project_pages/PlayItBack/index.html">[Project page]</a>
 
-- <a href="#">[ArXiv paper]</a>
+- <a href="http://arxiv.org/abs/2204.13340">[ArXiv paper]</a>
 
 ![supported versions](https://img.shields.io/badge/python-3.x-brightgreen/?style=flat&logo=python&color=green)
 ![Library](https://img.shields.io/badge/library-PyTorch-blue/?style=flat&logo=pytorch&color=informational)
